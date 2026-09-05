@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-echo "Registering WarEra Intelligence slash commands..."
+echo "⚔️ Registering slash commands..."
 node dist/scripts/deploy-commands.js
 
-echo "Starting WarEra Intelligence..."
+echo "🤖 Starting bot..."
 exec node dist/index.js
