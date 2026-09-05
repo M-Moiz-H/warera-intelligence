@@ -1,0 +1,1 @@
+import {Client,GatewayIntentBits} from "discord.js";export const createBotClient=()=>new Client({intents:[GatewayIntentBits.Guilds]});

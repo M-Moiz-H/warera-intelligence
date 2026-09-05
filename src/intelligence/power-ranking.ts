@@ -1,0 +1,1 @@
+export function powerScore(x:{military?:number;economy?:number;population?:number}){return Math.round((x.military??0)*0.5+(x.economy??0)*0.3+(x.population??0)*0.2)}

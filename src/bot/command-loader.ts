@@ -1,0 +1,18 @@
+import * as intel from "./commands/intel.js";
+import * as pakistan from "./commands/pakistan.js";
+import * as resistance from "./commands/resistance.js";
+import * as frontline from "./commands/frontline.js";
+import * as battle from "./commands/battle.js";
+import * as country from "./commands/country.js";
+import * as military from "./commands/military.js";
+import * as economy from "./commands/economy.js";
+import * as diplomacy from "./commands/diplomacy.js";
+import * as politics from "./commands/politics.js";
+import * as global from "./commands/global.js";
+import * as timeline from "./commands/timeline.js";
+import * as alerts from "./commands/alerts.js";
+import * as watch from "./commands/watch.js";
+import * as setup from "./commands/setup.js";
+import * as status from "./commands/status.js";
+export const modules=[intel,pakistan,resistance,frontline,battle,country,military,economy,diplomacy,politics,global,timeline,alerts,watch,setup,status] as any[];
+export const commandMap=new Map(modules.map(m=>[m.data.name,m]));

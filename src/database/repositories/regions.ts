@@ -1,0 +1,4 @@
+import {supabase} from "../supabase.js";
+import type {Region} from "../../types/models.js";
+export async function saveRegions(rows:Region[]){const data=rows.map(x=>({id:x.id,name:x.name,country_id:x.countryId??null,owner_country_id:x.ownerCountryId??null,is_core:x.isCore,resistance:x.resistance??null,raw:x.raw??{},updated_at:new Date().toISOString()}));if(data.length){const {error}=await supabase.from("regions").upsert(data);if(error)throw error}}
+export async function pakistanOccupied(countryId:string){const {data,error}=await supabase.from("regions").select("*").eq("country_id",countryId).eq("is_core",true).neq("owner_country_id",countryId).order("resistance",{ascending:false});if(error)throw error;return data??[]}

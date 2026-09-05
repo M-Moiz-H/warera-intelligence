@@ -1,0 +1,1 @@
+export function occupationRisk(resistance:number|null|undefined){const r=Number(resistance??0);return r>=80?"Critical":r>=50?"High":r>=25?"Moderate":"Low"}

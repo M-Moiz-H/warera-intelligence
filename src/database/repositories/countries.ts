@@ -1,0 +1,4 @@
+import {supabase} from "../supabase.js";
+import type {Country} from "../../types/models.js";
+export async function saveCountries(rows:Country[]){const data=rows.map(x=>({id:x.id,name:x.name,code:x.code,population:x.population,military_rank:x.militaryRank,economy_rank:x.economyRank,raw:x.raw??{},updated_at:new Date().toISOString()}));if(data.length){const {error}=await supabase.from("countries").upsert(data);if(error)throw error}}
+export async function findCountry(name:string){const {data,error}=await supabase.from("countries").select("*").ilike("name",name).maybeSingle();if(error)throw error;return data}

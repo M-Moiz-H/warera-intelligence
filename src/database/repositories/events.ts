@@ -1,0 +1,3 @@
+import {supabase} from "../supabase.js";
+import type {IntelEvent} from "../../types/models.js";
+export async function saveEvent(e:IntelEvent){const {error}=await supabase.from("intelligence_events").insert({event_type:e.type,severity:e.severity,country_id:e.countryId??null,region_id:e.regionId??null,title:e.title,summary:e.summary??null,payload:e.payload??{},occurred_at:(e.occurredAt??new Date()).toISOString()});if(error)throw error}

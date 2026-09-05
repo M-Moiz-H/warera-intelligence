@@ -1,0 +1,3 @@
+import {commandMap} from "./command-loader.js";
+export async function route(i:any,ctx:any){if(!i.isChatInputCommand())return;const cmd=commandMap.get(i.commandName);if(!cmd)return;try{await cmd.execute(i,ctx)}catch(e){console.error(e);const m="⚠️ Intelligence request failed. Check `/status`.";
+if(i.replied||i.deferred)await i.followUp({content:m,ephemeral:true});else await i.reply({content:m,ephemeral:true})}}

@@ -1,0 +1,1 @@
+export function rankHotZones<T extends {activity:number}>(rows:T[]){return [...rows].sort((a,b)=>b.activity-a.activity)}

@@ -1,0 +1,3 @@
+import {SlashCommandBuilder,EmbedBuilder} from "discord.js";
+export const data=new SlashCommandBuilder().setName("intel").setDescription("Open the intelligence command center");
+export async function execute(i:any){return i.reply({embeds:[new EmbedBuilder().setTitle("⚔️ WARERA INTELLIGENCE").setDescription("🇵🇰 Pakistan\n⚔️ Frontline\n👁️ Enemy POV\n🌍 Global\n🪖 Military\n📊 Economy\n🤝 Diplomacy\n🏛️ Politics\n🔔 Alerts").setFooter({text:"Developed by Sensei"}).setTimestamp()]})}

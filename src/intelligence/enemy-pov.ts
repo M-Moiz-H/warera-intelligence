@@ -1,0 +1,1 @@
+export function enemyPov(resistance:number|null|undefined){const r=Number(resistance??0);return {stability:Math.max(0,100-r),pressure:r>=70?"Severe":r>=40?"Increasing":"Limited"}}

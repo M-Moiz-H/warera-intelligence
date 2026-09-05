@@ -1,0 +1,3 @@
+import {supabase} from "../supabase.js";
+export async function addWatch(guildId:string,type:string,id:string,label?:string){const {error}=await supabase.from("watchlists").upsert({guild_id:guildId,entity_type:type,entity_id:id,label:label??null});if(error)throw error}
+export async function listWatch(guildId:string){const {data,error}=await supabase.from("watchlists").select("*").eq("guild_id",guildId);if(error)throw error;return data??[]}
