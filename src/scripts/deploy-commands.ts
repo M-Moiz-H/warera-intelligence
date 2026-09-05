@@ -3,17 +3,19 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const token = process.env.DISCORD_TOKEN;
-const clientId = process.env.DISCORD_CLIENT_ID;
+function requireEnv(name: string): string {
+  const value = process.env[name];
+
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+
+  return value;
+}
+
+const token = requireEnv("DISCORD_TOKEN");
+const clientId = requireEnv("DISCORD_CLIENT_ID");
 const guildId = process.env.DISCORD_GUILD_ID;
-
-if (!token) {
-  throw new Error("Missing DISCORD_TOKEN");
-}
-
-if (!clientId) {
-  throw new Error("Missing DISCORD_CLIENT_ID");
-}
 
 async function loadCommands(): Promise<unknown[]> {
   const commands: unknown[] = [];
@@ -41,20 +43,26 @@ async function main(): Promise<void> {
   const commands = await loadCommands();
 
   if (commands.length === 0) {
-    throw new Error("No slash commands were found in dist/bot/commands");
+    throw new Error(
+      "No slash commands were found in dist/bot/commands"
+    );
   }
 
   const rest = new REST({ version: "10" }).setToken(token);
 
-  console.log(`Registering ${commands.length} global slash commands...`);
+  console.log(
+    `Registering ${commands.length} global slash commands...`
+  );
 
   const globalResult = await rest.put(
     Routes.applicationCommands(clientId),
     { body: commands }
-  ) as unknown[];
+  );
 
   console.log(
-    `Successfully registered ${globalResult.length} global slash commands.`
+    `Successfully registered ${
+      Array.isArray(globalResult) ? globalResult.length : commands.length
+    } global slash commands.`
   );
 
   if (guildId) {
@@ -65,10 +73,12 @@ async function main(): Promise<void> {
     const guildResult = await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
       { body: commands }
-    ) as unknown[];
+    );
 
     console.log(
-      `Successfully registered ${guildResult.length} guild slash commands.`
+      `Successfully registered ${
+        Array.isArray(guildResult) ? guildResult.length : commands.length
+      } guild slash commands.`
     );
   }
 }
