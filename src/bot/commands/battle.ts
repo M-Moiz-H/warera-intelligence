@@ -1,12 +1,5 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("battle")
-  .setDescription("Battle intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Battle** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { battleAnalysis } from "../../services/intel-service.js";
+import { embed, text } from "./_utils.js";
+export const data=new SlashCommandBuilder().setName("battle").setDescription("Analyze active battles").addStringOption(o=>o.setName("id").setDescription("Battle ID (optional)"));
+export async function execute(i:any,ctx:any){await i.deferReply();const rows=await ctx.provider.battles();const wanted=i.options.getString("id");const rows2=wanted?rows.filter((b:any)=>b.id===wanted):rows.slice(0,10);if(!rows2.length)return i.editReply("⚠️ No matching battle was returned.");const e=embed("⚔️ BATTLE INTELLIGENCE");for(const b of rows2.slice(0,5)){const a=battleAnalysis(b);e.addFields({name:`Battle ${text(b.id)}`,value:`Status: **${text(b.status)}**\nDamage: **${a.attackerDamage.toLocaleString()} / ${a.defenderDamage.toLocaleString()}**\nMomentum: **${a.leader}**`});}return i.editReply({embeds:[e]});}

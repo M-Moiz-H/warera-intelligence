@@ -1,12 +1,5 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("country")
-  .setDescription("Country intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Country** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { liveCountry } from "../../services/intel-service.js";
+import { embed, n } from "./_utils.js";
+export const data=new SlashCommandBuilder().setName("country").setDescription("Live country intelligence").addStringOption(o=>o.setName("name").setDescription("Country name or ID").setRequired(true));
+export async function execute(i:any,ctx:any){await i.deferReply();const c=await liveCountry(ctx.provider,i.options.getString("name",true));if(!c)return i.editReply("⚠️ Country not found in the live provider response.");return i.editReply({embeds:[embed(`🌍 ${c.name.toUpperCase()}`,"Live country intelligence").addFields({name:"ID",value:c.id,inline:true},{name:"Code",value:c.code??"N/A",inline:true},{name:"Population",value:n(c.population),inline:true},{name:"Military rank",value:n(c.militaryRank),inline:true},{name:"Economy rank",value:n(c.economyRank),inline:true})]});}

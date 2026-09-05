@@ -1,12 +1,5 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("watch")
-  .setDescription("Watch intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Watch** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { addWatch, listWatch } from "../../database/repositories/watchlists.js";
+import { embed, text } from "./_utils.js";
+export const data=new SlashCommandBuilder().setName("watch").setDescription("Manage the server intelligence watchlist").addSubcommand(s=>s.setName("list").setDescription("Show watchlist")).addSubcommand(s=>s.setName("add").setDescription("Add an entity").addStringOption(o=>o.setName("type").setDescription("country, region, battle, player").setRequired(true)).addStringOption(o=>o.setName("id").setDescription("Entity ID").setRequired(true)).addStringOption(o=>o.setName("label").setDescription("Optional label")));
+export async function execute(i:any){if(!i.guildId)return i.reply({content:"⚠️ Watchlists are server-specific.",ephemeral:true});const sub=i.options.getSubcommand();if(sub==="add"){await addWatch(i.guildId,i.options.getString("type",true),i.options.getString("id",true),i.options.getString("label")??undefined);return i.reply("✅ Added to the intelligence watchlist.")}const rows=await listWatch(i.guildId);return i.reply({embeds:[embed("👁️ WATCHLIST",rows.map((x:any)=>`• **${text(x.entity_type)}**: ${text(x.label,x.entity_id)}`).join("\n")||"No watched entities.")]});}

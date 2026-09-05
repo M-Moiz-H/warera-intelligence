@@ -1,12 +1,4 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("economy")
-  .setDescription("Economy intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Economy** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { embed, text } from "./_utils.js";
+export const data=new SlashCommandBuilder().setName("economy").setDescription("Market and economic intelligence");
+export async function execute(i:any,ctx:any){await i.deferReply();const raw=await ctx.provider.marketPrices().catch(()=>null);const arr=Array.isArray(raw)?raw:(raw&&typeof raw==="object"?Object.values((raw as any).items??(raw as any).data??raw):[]);const lines=arr.slice(0,15).map((x:any)=>`• **${text(x.name??x.itemName??x.id)}** — ${text(x.price??x.value??x.amount)}`);return i.editReply({embeds:[embed("💰 ECONOMY INTELLIGENCE",lines.length?lines.join("\n"):"The provider returned no market rows in a recognized format.")]});}

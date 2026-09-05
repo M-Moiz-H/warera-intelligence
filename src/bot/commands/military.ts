@@ -1,12 +1,5 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("military")
-  .setDescription("Military intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Military** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { globalIntel } from "../../services/intel-service.js";
+import { embed, n } from "./_utils.js";
+export const data=new SlashCommandBuilder().setName("military").setDescription("Military ranking and battle overview");
+export async function execute(i:any,ctx:any){await i.deferReply();const x=await globalIntel(ctx.provider);const ranked=[...x.countries].filter(c=>c.militaryRank!=null).sort((a,b)=>(a.militaryRank??9999)-(b.militaryRank??9999)).slice(0,10);const lines=ranked.map((c,idx)=>`**${idx+1}. ${c.name}** — rank ${n(c.militaryRank)}`);return i.editReply({embeds:[embed("🪖 MILITARY INTELLIGENCE",lines.join("\n")||"No military ranking data was exposed by the provider.").addFields({name:"Active battles observed",value:String(x.battles.length)})]});}

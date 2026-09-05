@@ -1,5 +1,8 @@
 import "dotenv/config";
-const required=(name:string)=>{const value=process.env[name];if(!value)throw new Error(`Missing environment variable: ${name}`);return value};
+const required=(name:string)=>{
+const value=process.env[name];
+if(!value)throw new Error(`Missing environment variable: ${name}`);
+return value};
 export const env={
  discordToken:required("DISCORD_TOKEN"),
  discordClientId:required("DISCORD_CLIENT_ID"),

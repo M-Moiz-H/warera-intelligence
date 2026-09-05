@@ -1,12 +1,4 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("politics")
-  .setDescription("Politics intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Politics** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { embed } from "./_utils.js";
+export const data=new SlashCommandBuilder().setName("politics").setDescription("Political intelligence lookup").addStringOption(o=>o.setName("party_id").setDescription("Party ID (optional)"));
+export async function execute(i:any,ctx:any){await i.deferReply();const id=i.options.getString("party_id");if(!id)return i.editReply({embeds:[embed("🏛️ POLITICAL INTELLIGENCE","Use this command with a public party ID to retrieve the provider's party data. Broader political tracking is stored as historical intelligence when available.")]});const raw=await ctx.provider.party(id);return i.editReply({embeds:[embed("🏛️ PARTY INTELLIGENCE",`\`\`json\n${JSON.stringify(raw,null,2).slice(0,3500)}\n\`\``)]});}

@@ -1,12 +1,5 @@
-import {SlashCommandBuilder} from "discord.js";
-
-export const data = new SlashCommandBuilder()
-  .setName("pakistan")
-  .setDescription("Pakistan intelligence command");
-
-export async function execute(interaction: any, _ctx: any) {
-  return interaction.reply({
-    content: "⚔️ **Pakistan** module is online in WarEra Intelligence.",
-    ephemeral: true
-  });
-}
+import { SlashCommandBuilder } from "discord.js";
+import { pakistanIntel } from "../../services/intel-service.js";
+import { embed, n } from "./_utils.js";
+export const data = new SlashCommandBuilder().setName("pakistan").setDescription("Live Pakistan intelligence overview");
+export async function execute(i: any, ctx: any) { await i.deferReply(); const x = await pakistanIntel(ctx.provider); if (!x) return i.editReply("⚠️ Pakistan was not found in the live WarEra data."); const e = embed("🇵🇰 PAKISTAN INTELLIGENCE", `Live intelligence overview from the configured WarEra provider.`).addFields({name:"Population",value:n(x.country.population),inline:true},{name:"Military rank",value:n(x.country.militaryRank),inline:true},{name:"Economy rank",value:n(x.country.economyRank),inline:true},{name:"Core regions",value:String(x.cores.length),inline:true},{name:"Occupied cores",value:String(x.occupied.length),inline:true},{name:"Average resistance",value:`${x.averageResistance.toFixed(1)}%`,inline:true},{name:"Active battles",value:String(x.activeBattles.length),inline:true}); return i.editReply({embeds:[e]}); }
