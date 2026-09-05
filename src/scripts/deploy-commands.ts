@@ -7,17 +7,22 @@ const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.DISCORD_CLIENT_ID;
 const guildId = process.env.DISCORD_GUILD_ID;
 
-if (!token) throw new Error("Missing DISCORD_TOKEN");
-if (!clientId) throw new Error("Missing DISCORD_CLIENT_ID");
+if (!token) {
+  throw new Error("Missing DISCORD_TOKEN");
+}
 
-async function loadCommands() {
+if (!clientId) {
+  throw new Error("Missing DISCORD_CLIENT_ID");
+}
+
+async function loadCommands(): Promise<unknown[]> {
   const commands: unknown[] = [];
   const commandsDir = join(process.cwd(), "dist", "bot", "commands");
 
-  const files = (await readdir(commandsDir))
+  const commandFiles = (await readdir(commandsDir))
     .filter((file) => file.endsWith(".js") && !file.endsWith(".map"));
 
-  for (const file of files) {
+  for (const file of commandFiles) {
     const filePath = join(commandsDir, file);
     const command = await import(pathToFileURL(filePath).href);
 
@@ -32,7 +37,7 @@ async function loadCommands() {
   return commands;
 }
 
-async function main() {
+async function main(): Promise<void> {
   const commands = await loadCommands();
 
   if (commands.length === 0) {
@@ -45,24 +50,30 @@ async function main() {
 
   const globalResult = await rest.put(
     Routes.applicationCommands(clientId),
-    { body: commands },
+    { body: commands }
   ) as unknown[];
 
-  console.log(`Successfully registered ${globalResult.length} global commands.`);
+  console.log(
+    `Successfully registered ${globalResult.length} global slash commands.`
+  );
 
   if (guildId) {
-    console.log(`Registering ${commands.length} commands in development guild ${guildId}...`);
+    console.log(
+      `Registering ${commands.length} commands in development guild ${guildId}...`
+    );
 
     const guildResult = await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
-      { body: commands },
+      { body: commands }
     ) as unknown[];
 
-    console.log(`Successfully registered ${guildResult.length} guild commands.`);
+    console.log(
+      `Successfully registered ${guildResult.length} guild slash commands.`
+    );
   }
 }
 
-main().catch((error) => {
+main().catch((error: unknown) => {
   console.error("Failed to register Discord slash commands:");
   console.error(error);
   process.exit(1);
