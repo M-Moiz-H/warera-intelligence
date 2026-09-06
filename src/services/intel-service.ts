@@ -174,14 +174,12 @@ function mergeBattleData(
     attackerDamage:
       live?.attackerDamage ??
       best.attackerDamage ??
-      summary.attackerDamage ??
-      0,
+      summary.attackerDamage,
 
     defenderDamage:
       live?.defenderDamage ??
       best.defenderDamage ??
-      summary.defenderDamage ??
-      0,
+      summary.defenderDamage,
 
     status:
       live?.status ??
@@ -373,6 +371,15 @@ function calculateBattleStats(
         countryId
   );
 
+  const damageDataCount =
+    battles.filter(
+      (battle) =>
+        battle.attackerDamage !==
+          undefined ||
+        battle.defenderDamage !==
+          undefined
+    ).length;
+
   const totalDamage = battles.reduce(
     (total, battle) =>
       total +
@@ -392,7 +399,9 @@ function calculateBattleStats(
     defendingCount:
       defending.length,
 
-    totalDamage
+    totalDamage,
+
+    damageDataCount
   };
 }
 
@@ -538,7 +547,10 @@ export async function pakistanIntel(
         battleStats.defendingCount,
 
       totalDamage:
-        battleStats.totalDamage
+        battleStats.totalDamage,
+
+      damageDataCount:
+        battleStats.damageDataCount
     },
 
     threat
@@ -612,6 +624,22 @@ export function battleAnalysis(
     defenderDamage?: number | null;
   }
 ) {
+  const hasAttackerDamage =
+    battle.attackerDamage !==
+      null &&
+    battle.attackerDamage !==
+      undefined;
+
+  const hasDefenderDamage =
+    battle.defenderDamage !==
+      null &&
+    battle.defenderDamage !==
+      undefined;
+
+  const hasDamageData =
+    hasAttackerDamage ||
+    hasDefenderDamage;
+
   const attackerDamage =
     Number(
       battle.attackerDamage ?? 0
@@ -637,6 +665,9 @@ export function battleAnalysis(
     defenderDamage,
     totalDamage,
     leader,
+    hasDamageData,
+    hasAttackerDamage,
+    hasDefenderDamage,
 
     attackerShare:
       totalDamage > 0
