@@ -18,18 +18,167 @@ import type {
 
 import { env } from "../config/env.js";
 
+type JsonRecord = Record<string, any>;
+
+const isRecord = (
+  value: unknown
+): value is JsonRecord =>
+  Boolean(value) &&
+  typeof value === "object" &&
+  !Array.isArray(value);
+
 const object = (
   value: unknown
-): Record<string, any> => {
+): JsonRecord =>
+  isRecord(value) ? value : {};
+
+const defined = <T>(
+  ...values: (T | null | undefined)[]
+): T | undefined =>
+  values.find(
+    (value) =>
+      value !== null &&
+      value !== undefined
+  );
+
+const num = (
+  value: unknown
+): number | undefined => {
   if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value)
+    value === null ||
+    value === undefined ||
+    value === ""
   ) {
-    return value as Record<string, any>;
+    return undefined;
   }
 
-  return {};
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : undefined;
+};
+
+const pathValue = (
+  value: unknown,
+  path: string
+): unknown => {
+  let current: unknown = value;
+
+  for (const key of path.split(".")) {
+    if (
+      current === null ||
+      current === undefined ||
+      typeof current !== "object"
+    ) {
+      return undefined;
+    }
+
+    current = (current as JsonRecord)[key];
+  }
+
+  return current;
+};
+
+const firstPath = (
+  value: unknown,
+  paths: string[]
+): unknown => {
+  for (const path of paths) {
+    const result = pathValue(
+      value,
+      path
+    );
+
+    if (
+      result !== null &&
+      result !== undefined
+    ) {
+      return result;
+    }
+  }
+
+  return undefined;
+};
+
+const firstNumber = (
+  value: unknown,
+  paths: string[]
+): number | undefined => {
+  for (const path of paths) {
+    const result = num(
+      pathValue(value, path)
+    );
+
+    if (result !== undefined) {
+      return result;
+    }
+  }
+
+  return undefined;
+};
+
+const unwrapEntity = (
+  value: unknown
+): unknown => {
+  let current = value;
+
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (Array.isArray(current)) {
+      const candidate = current.find(
+        (entry) =>
+          entry !== null &&
+          entry !== undefined
+      );
+
+      if (candidate === undefined) {
+        return {};
+      }
+
+      current = candidate;
+      continue;
+    }
+
+    if (!isRecord(current)) {
+      return current;
+    }
+
+    const raw = current;
+
+    const directKeys = [
+      "json",
+      "result",
+      "data",
+      "battle",
+      "currentBattle",
+      "item"
+    ];
+
+    let changed = false;
+
+    for (const key of directKeys) {
+      const candidate = raw[key];
+
+      if (
+        candidate !== undefined &&
+        candidate !== null &&
+        (
+          Array.isArray(candidate) ||
+          isRecord(candidate)
+        )
+      ) {
+        current = candidate;
+        changed = true;
+        break;
+      }
+    }
+
+    if (!changed) {
+      return current;
+    }
+  }
+
+  return current;
 };
 
 const list = (
@@ -58,37 +207,16 @@ const list = (
       return candidate;
     }
 
-    if (
-      candidate &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate)
-    ) {
+    if (isRecord(candidate)) {
       return Object.values(candidate);
     }
   }
 
-  if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  ) {
-    return Object.values(raw);
-  }
-
-  return [];
+  return isRecord(value)
+    ? Object.values(raw)
+    : [];
 };
 
-/**
- * region.getRegionsObject may return a keyed object:
- *
- * {
- *   "region-id": { ...region data },
- *   "another-region-id": { ...region data }
- * }
- *
- * Preserve the object key as the region ID when the
- * individual region object does not contain its own ID.
- */
 const regionEntries = (
   value: unknown
 ): any[] => {
@@ -120,7 +248,6 @@ const regionEntries = (
       continue;
     }
 
-    // This is already a single region object.
     if (
       container.id ||
       container._id ||
@@ -128,45 +255,27 @@ const regionEntries = (
       container.name ||
       container.regionName
     ) {
-      if (
-        container.name ||
-        container.regionName ||
-        container.regionId ||
-        container.country ||
-        container.initialCountry
-      ) {
-        return [container];
-      }
+      return [container];
     }
 
     const entries = Object.entries(container)
       .filter(
         ([, entry]) =>
-          entry &&
-          typeof entry === "object" &&
-          !Array.isArray(entry)
+          isRecord(entry)
       )
       .map(
         ([key, entry]) => {
           const region = object(entry);
 
-          if (
-            !region.id &&
-            !region._id &&
-            !region.regionId
-          ) {
-            return {
-              ...region,
-              id: key
-            };
-          }
-
-          return region;
+          return region.id ||
+            region._id ||
+            region.regionId
+            ? region
+            : {
+                ...region,
+                id: key
+              };
         }
-      )
-      .filter(
-        (entry) =>
-          Object.keys(entry).length > 0
       );
 
     if (entries.length > 0) {
@@ -190,12 +299,13 @@ const id = (
   const raw = object(value);
 
   return String(
-    raw.id ??
-      raw._id ??
-      raw.countryId ??
-      raw.regionId ??
-      raw.battleId ??
-      ""
+    defined(
+      raw.id,
+      raw._id,
+      raw.countryId,
+      raw.regionId,
+      raw.battleId
+    ) ?? ""
   );
 };
 
@@ -218,59 +328,146 @@ const referenceId = (
 
   const raw = object(value);
 
-  const result =
-    raw.id ??
-    raw._id ??
-    raw.countryId ??
-    raw.regionId ??
-    raw.battleId ??
-    raw.value ??
-    null;
+  const result = defined(
+    raw.id,
+    raw._id,
+    raw.countryId,
+    raw.regionId,
+    raw.battleId,
+    raw.value
+  );
 
-  return result === null ||
-    result === undefined
+  return result === undefined
     ? null
     : String(result);
 };
 
-const num = (
-  value: unknown
+const battleSideCountryId = (
+  raw: JsonRecord,
+  side: "attacker" | "defender"
+): string | null => {
+  const capitalized =
+    side === "attacker"
+      ? "Attacker"
+      : "Defender";
+
+  return (
+    referenceId(
+      raw[`${side}CountryId`]
+    ) ??
+    referenceId(
+      raw[`${side}Country`]
+    ) ??
+    referenceId(
+      raw[side]?.countryId
+    ) ??
+    referenceId(
+      raw[side]?.country
+    ) ??
+    referenceId(
+      raw[`${side}Side`]?.countryId
+    ) ??
+    referenceId(
+      raw[`${side}Side`]?.country
+    ) ??
+    referenceId(
+      raw.currentRound?.[
+        `${side}CountryId`
+      ]
+    ) ??
+    referenceId(
+      raw.currentRound?.[
+        `${side}Country`
+      ]
+    ) ??
+    referenceId(
+      raw.currentRound?.[side]?.countryId
+    ) ??
+    referenceId(
+      raw.currentRound?.[side]?.country
+    ) ??
+    referenceId(
+      raw[`${capitalized.toLowerCase()}Data`]
+        ?.countryId
+    )
+  );
+};
+
+const battleSideDamage = (
+  raw: JsonRecord,
+  side: "attacker" | "defender"
 ): number | undefined => {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return undefined;
-  }
+  const capitalized =
+    side === "attacker"
+      ? "Attacker"
+      : "Defender";
 
-  const parsed = Number(value);
-
-  return Number.isFinite(parsed)
-    ? parsed
-    : undefined;
+  return firstNumber(raw, [
+    `${side}Damage`,
+    `${side}TotalDamage`,
+    `${side}DamageDealt`,
+    `${side}Side.damage`,
+    `${side}Side.totalDamage`,
+    `${side}.damage`,
+    `${side}.totalDamage`,
+    `${side}.damageDealt`,
+    `${side}.totalDamageDealt`,
+    `damage.${side}`,
+    `damage.${side}Damage`,
+    `damages.${side}`,
+    `damages.${side}Damage`,
+    `currentRound.${side}Damage`,
+    `currentRound.${side}TotalDamage`,
+    `currentRound.${side}.damage`,
+    `currentRound.${side}.totalDamage`,
+    `currentRound.${side}.damageDealt`,
+    `round.${side}Damage`,
+    `round.${side}.damage`,
+    `round.${side}.totalDamage`,
+    `live.${side}Damage`,
+    `live.${side}.damage`,
+    `live.${side}.totalDamage`,
+    `battleData.${side}Damage`,
+    `battleData.${side}.damage`,
+    `${capitalized.toLowerCase()}Data.damage`,
+    `${capitalized.toLowerCase()}Data.totalDamage`
+  ]);
 };
 
-const nested = (
-  value: unknown,
-  ...keys: string[]
-): unknown => {
-  let current: any = value;
+const battleStatus = (
+  raw: JsonRecord
+): string | null => {
+  const value = firstPath(raw, [
+    "status",
+    "state",
+    "battleStatus",
+    "battleState",
+    "phase",
+    "currentRound.status",
+    "currentRound.state",
+    "round.status",
+    "live.status"
+  ]);
 
-  for (const key of keys) {
-    if (
-      current === null ||
-      current === undefined ||
-      typeof current !== "object"
-    ) {
-      return undefined;
-    }
-
-    current = current[key];
-  }
-
-  return current;
+  return typeof value === "string" &&
+    value.trim()
+    ? value
+    : null;
 };
+
+const battleRoundNumber = (
+  raw: JsonRecord
+): number | undefined =>
+  firstNumber(raw, [
+    "roundNumber",
+    "currentRoundNumber",
+    "currentRound.roundNumber",
+    "currentRound.number",
+    "round.roundNumber",
+    "round.number",
+    "battleRound.roundNumber",
+    "battleRound.number"
+  ]);
 
 export class GatewayProvider
   implements WarEraProvider
@@ -334,7 +531,9 @@ export class GatewayProvider
   private normalizeCountry(
     value: unknown
   ): Country {
-    const raw = object(value);
+    const raw = object(
+      unwrapEntity(value)
+    );
     const countryId = id(raw);
     const rankings = object(raw.rankings);
 
@@ -362,30 +561,14 @@ export class GatewayProvider
 
       militaryRank: num(
         raw.militaryRank ??
-          nested(
-            rankings,
-            "countryDamages",
-            "rank"
-          ) ??
-          nested(
-            rankings,
-            "weeklyCountryDamages",
-            "rank"
-          )
+          rankings.countryDamages?.rank ??
+          rankings.weeklyCountryDamages?.rank
       ),
 
       economyRank: num(
         raw.economyRank ??
-          nested(
-            rankings,
-            "countryWealth",
-            "rank"
-          ) ??
-          nested(
-            rankings,
-            "countryDevelopment",
-            "rank"
-          )
+          rankings.countryWealth?.rank ??
+          rankings.countryDevelopment?.rank
       ),
 
       raw
@@ -395,7 +578,9 @@ export class GatewayProvider
   private normalizeRegion(
     value: unknown
   ): Region {
-    const raw = object(value);
+    const raw = object(
+      unwrapEntity(value)
+    );
     const regionId = id(raw);
 
     const originalCountryId =
@@ -417,16 +602,22 @@ export class GatewayProvider
       referenceId(raw.currentCountryId) ??
       null;
 
-    const resistanceValue = num(
-      raw.resistance ??
-        raw.resistancePercentage ??
-        raw.resistancePercent ??
-        raw.currentResistance
+    const resistanceValue = firstNumber(
+      raw,
+      [
+        "resistance",
+        "resistancePercentage",
+        "resistancePercent",
+        "currentResistance"
+      ]
     );
 
-    const resistanceMax = num(
-      raw.resistanceMax ??
-        raw.maxResistance
+    const resistanceMax = firstNumber(
+      raw,
+      [
+        "resistanceMax",
+        "maxResistance"
+      ]
     );
 
     const resistance =
@@ -437,9 +628,10 @@ export class GatewayProvider
             0,
             Math.min(
               100,
-              (resistanceValue /
-                resistanceMax) *
-                100
+              (
+                resistanceValue /
+                resistanceMax
+              ) * 100
             )
           )
         : resistanceValue;
@@ -475,22 +667,21 @@ export class GatewayProvider
   }
 
   private normalizeBattle(
-    value: unknown
+    value: unknown,
+    fallbackId = ""
   ): Battle {
-    const raw = object(value);
-    const battleId = id(raw);
-
-    const attacker = object(
-      raw.attacker
+    const raw = object(
+      unwrapEntity(value)
     );
 
-    const defender = object(
-      raw.defender
-    );
+    const battleId =
+      id(raw) ||
+      fallbackId;
 
     const currentRound =
       raw.currentRound ??
       raw.round ??
+      raw.battleRound ??
       raw.currentRoundId ??
       null;
 
@@ -499,60 +690,51 @@ export class GatewayProvider
 
       warId:
         referenceId(raw.warId) ??
-        referenceId(raw.war),
+        referenceId(raw.war) ??
+        null,
 
       regionId:
         referenceId(raw.regionId) ??
         referenceId(raw.region) ??
-        referenceId(raw.defenderRegion),
+        referenceId(raw.defenderRegion) ??
+        referenceId(raw.currentRound?.regionId) ??
+        null,
 
       attackerCountryId:
-        referenceId(
-          raw.attackerCountryId
-        ) ??
-        referenceId(
-          attacker.countryId
-        ) ??
-        referenceId(
-          attacker.country
+        battleSideCountryId(
+          raw,
+          "attacker"
         ),
 
       defenderCountryId:
-        referenceId(
-          raw.defenderCountryId
-        ) ??
-        referenceId(
-          defender.countryId
-        ) ??
-        referenceId(
-          defender.country
+        battleSideCountryId(
+          raw,
+          "defender"
         ),
 
-      attackerDamage: num(
-        raw.attackerDamage ??
-          attacker.damage ??
-          attacker.totalDamage
-      ),
+      attackerDamage:
+        battleSideDamage(
+          raw,
+          "attacker"
+        ),
 
-      defenderDamage: num(
-        raw.defenderDamage ??
-          defender.damage ??
-          defender.totalDamage
-      ),
+      defenderDamage:
+        battleSideDamage(
+          raw,
+          "defender"
+        ),
 
       currentRoundId:
         referenceId(currentRound),
 
       status:
-        raw.status ??
-        raw.state ??
-        raw.battleStatus ??
-        null,
+        battleStatus(raw),
 
       endsAt:
         raw.endsAt ??
         raw.endDate ??
         raw.endTime ??
+        raw.endAt ??
         null,
 
       raw
@@ -563,14 +745,8 @@ export class GatewayProvider
     battleId: string,
     value: unknown
   ): BattleLiveData {
-    const raw = object(value);
-
-    const attacker = object(
-      raw.attacker
-    );
-
-    const defender = object(
-      raw.defender
+    const raw = object(
+      unwrapEntity(value)
     );
 
     const round =
@@ -591,11 +767,8 @@ export class GatewayProvider
         ) ??
         battleId,
 
-      roundNumber: num(
-        raw.roundNumber ??
-          roundObject.roundNumber ??
-          roundObject.number
-      ),
+      roundNumber:
+        battleRoundNumber(raw),
 
       roundId:
         referenceId(
@@ -603,43 +776,59 @@ export class GatewayProvider
         ) ??
         referenceId(round),
 
-      attackerDamage: num(
-        raw.attackerDamage ??
-          attacker.damage ??
-          attacker.totalDamage
+      attackerDamage:
+        battleSideDamage(
+          raw,
+          "attacker"
+        ),
+
+      defenderDamage:
+        battleSideDamage(
+          raw,
+          "defender"
+        ),
+
+      attackerScore: firstNumber(
+        raw,
+        [
+          "attackerScore",
+          "attacker.score",
+          "attacker.points",
+          "currentRound.attackerScore",
+          "currentRound.attacker.score",
+          "currentRound.attacker.points"
+        ]
       ),
 
-      defenderDamage: num(
-        raw.defenderDamage ??
-          defender.damage ??
-          defender.totalDamage
-      ),
-
-      attackerScore: num(
-        raw.attackerScore ??
-          attacker.score ??
-          attacker.points
-      ),
-
-      defenderScore: num(
-        raw.defenderScore ??
-          defender.score ??
-          defender.points
+      defenderScore: firstNumber(
+        raw,
+        [
+          "defenderScore",
+          "defender.score",
+          "defender.points",
+          "currentRound.defenderScore",
+          "currentRound.defender.score",
+          "currentRound.defender.points"
+        ]
       ),
 
       status:
-        raw.status ??
-        raw.state ??
-        null,
+        battleStatus(raw),
 
-      raw
+      raw: {
+        ...raw,
+        round:
+          roundObject
+      }
     };
   }
 
   private normalizeRanking(
     value: unknown
   ): BattleRankingEntry {
-    const raw = object(value);
+    const raw = object(
+      unwrapEntity(value)
+    );
 
     return {
       id:
@@ -660,16 +849,22 @@ export class GatewayProvider
             ? raw.username
             : undefined,
 
-      value: num(
-        raw.value ??
-          raw.damage ??
-          raw.points ??
-          raw.money
+      value: firstNumber(
+        raw,
+        [
+          "value",
+          "damage",
+          "points",
+          "money"
+        ]
       ),
 
-      rank: num(
-        raw.rank ??
-          raw.position
+      rank: firstNumber(
+        raw,
+        [
+          "rank",
+          "position"
+        ]
       ),
 
       raw
@@ -679,7 +874,9 @@ export class GatewayProvider
   private normalizeBattleOrder(
     value: unknown
   ): BattleOrder {
-    const raw = object(value);
+    const raw = object(
+      unwrapEntity(value)
+    );
 
     return {
       id:
@@ -785,10 +982,15 @@ export class GatewayProvider
       input
     );
 
-    return list(response).map(
-      (value) =>
-        this.normalizeBattle(value)
-    );
+    return list(response)
+      .map(
+        (value) =>
+          this.normalizeBattle(value)
+      )
+      .filter(
+        (battle) =>
+          Boolean(battle.id)
+      );
   }
 
   async battle(
@@ -801,7 +1003,8 @@ export class GatewayProvider
       );
 
       return this.normalizeBattle(
-        response
+        response,
+        battleId
       );
     } catch {
       return null;
@@ -812,33 +1015,37 @@ export class GatewayProvider
     battleId: string,
     roundNumber?: number
   ): Promise<BattleLiveData | null> {
-    try {
-      const input: Record<
-        string,
-        unknown
-      > = {
-        battleId
-      };
+    const inputs: Record<
+      string,
+      unknown
+    >[] = [];
 
-      if (
-        roundNumber !== undefined
-      ) {
-        input.roundNumber =
-          roundNumber;
-      }
-
-      const response = await this.call(
-        "battle.getLiveBattleData",
-        input
-      );
-
-      return this.normalizeLiveBattle(
+    if (roundNumber !== undefined) {
+      inputs.push({
         battleId,
-        response
-      );
-    } catch {
-      return null;
+        roundNumber
+      });
     }
+
+    inputs.push({ battleId });
+
+    for (const input of inputs) {
+      try {
+        const response = await this.call(
+          "battle.getLiveBattleData",
+          input
+        );
+
+        return this.normalizeLiveBattle(
+          battleId,
+          response
+        );
+      } catch {
+        // Try the next supported input shape.
+      }
+    }
+
+    return null;
   }
 
   async battleRanking(
@@ -918,12 +1125,4 @@ export class GatewayProvider
     );
   }
 
-  async marketPrices(
-    input: Record<string, unknown> = {}
-  ): Promise<unknown> {
-    return this.call(
-      "itemTrading.getPrices",
-      input
-    );
-  }
-}
+    
