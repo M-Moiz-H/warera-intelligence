@@ -1,4 +1,5 @@
 import { TrpcClient } from "./trpc-client.js";
+
 import type {
   BattlesInput,
   WarEraProvider
@@ -17,9 +18,9 @@ import type {
 
 import { env } from "../config/env.js";
 
-function object(
+const object = (
   value: unknown
-): Record<string, any> {
+): Record<string, any> => {
   if (
     value &&
     typeof value === "object" &&
@@ -29,11 +30,11 @@ function object(
   }
 
   return {};
-}
+};
 
-function list(
+const list = (
   value: unknown
-): any[] {
+): any[] => {
   if (Array.isArray(value)) {
     return value;
   }
@@ -56,14 +57,129 @@ function list(
     if (Array.isArray(candidate)) {
       return candidate;
     }
+
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate)
+    ) {
+      return Object.values(candidate);
+    }
+  }
+
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    return Object.values(raw);
   }
 
   return [];
-}
+};
 
-function id(
+/**
+ * region.getRegionsObject may return a keyed object:
+ *
+ * {
+ *   "region-id": { ...region data },
+ *   "another-region-id": { ...region data }
+ * }
+ *
+ * Preserve the object key as the region ID when the
+ * individual region object does not contain its own ID.
+ */
+const regionEntries = (
   value: unknown
-): string {
+): any[] => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  const raw = object(value);
+
+  const containers = [
+    raw.regions,
+    raw.regionsObject,
+    raw.items,
+    raw.data,
+    raw.result,
+    raw.results,
+    raw.byId,
+    value
+  ];
+
+  for (const candidate of containers) {
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+
+    const container = object(candidate);
+
+    if (Object.keys(container).length === 0) {
+      continue;
+    }
+
+    // This is already a single region object.
+    if (
+      container.id ||
+      container._id ||
+      container.regionId ||
+      container.name ||
+      container.regionName
+    ) {
+      if (
+        container.name ||
+        container.regionName ||
+        container.regionId ||
+        container.country ||
+        container.initialCountry
+      ) {
+        return [container];
+      }
+    }
+
+    const entries = Object.entries(container)
+      .filter(
+        ([, entry]) =>
+          entry &&
+          typeof entry === "object" &&
+          !Array.isArray(entry)
+      )
+      .map(
+        ([key, entry]) => {
+          const region = object(entry);
+
+          if (
+            !region.id &&
+            !region._id &&
+            !region.regionId
+          ) {
+            return {
+              ...region,
+              id: key
+            };
+          }
+
+          return region;
+        }
+      )
+      .filter(
+        (entry) =>
+          Object.keys(entry).length > 0
+      );
+
+    if (entries.length > 0) {
+      return entries;
+    }
+  }
+
+  return [];
+};
+
+const id = (
+  value: unknown
+): string => {
   if (
     typeof value === "string" ||
     typeof value === "number"
@@ -81,11 +197,11 @@ function id(
       raw.battleId ??
       ""
   );
-}
+};
 
-function referenceId(
+const referenceId = (
   value: unknown
-): string | null {
+): string | null => {
   if (
     value === null ||
     value === undefined
@@ -111,19 +227,15 @@ function referenceId(
     raw.value ??
     null;
 
-  if (
-    result === null ||
+  return result === null ||
     result === undefined
-  ) {
-    return null;
-  }
+    ? null
+    : String(result);
+};
 
-  return String(result);
-}
-
-function num(
+const num = (
   value: unknown
-): number | undefined {
+): number | undefined => {
   if (
     value === null ||
     value === undefined ||
@@ -137,12 +249,12 @@ function num(
   return Number.isFinite(parsed)
     ? parsed
     : undefined;
-}
+};
 
-function nested(
+const nested = (
   value: unknown,
   ...keys: string[]
-): unknown {
+): unknown => {
   let current: any = value;
 
   for (const key of keys) {
@@ -158,7 +270,7 @@ function nested(
   }
 
   return current;
-}
+};
 
 export class GatewayProvider
   implements WarEraProvider
@@ -288,7 +400,9 @@ export class GatewayProvider
 
     const originalCountryId =
       referenceId(raw.initialCountry) ??
+      referenceId(raw.originalCountry) ??
       referenceId(raw.originalCountryId) ??
+      referenceId(raw.coreCountry) ??
       referenceId(raw.coreCountryId) ??
       referenceId(raw.initialCountryId) ??
       null;
@@ -296,6 +410,8 @@ export class GatewayProvider
     const currentOwnerCountryId =
       referenceId(raw.country) ??
       referenceId(raw.currentCountry) ??
+      referenceId(raw.ownerCountry) ??
+      referenceId(raw.owner) ??
       referenceId(raw.ownerCountryId) ??
       referenceId(raw.countryOwnerId) ??
       referenceId(raw.currentCountryId) ??
@@ -303,7 +419,9 @@ export class GatewayProvider
 
     const resistanceValue = num(
       raw.resistance ??
-        raw.resistancePercentage
+        raw.resistancePercentage ??
+        raw.resistancePercent ??
+        raw.currentResistance
     );
 
     const resistanceMax = num(
@@ -343,10 +461,11 @@ export class GatewayProvider
         currentOwnerCountryId,
 
       isCore:
+        Boolean(originalCountryId) ||
         Boolean(
           raw.isCore ??
             raw.core ??
-            originalCountryId
+            false
         ),
 
       resistance,
@@ -359,149 +478,84 @@ export class GatewayProvider
     value: unknown
   ): Battle {
     const raw = object(value);
-
-    const battle = object(
-      raw.battle
-    );
-
-    const source =
-      Object.keys(battle).length > 0
-        ? {
-            ...raw,
-            ...battle
-          }
-        : raw;
+    const battleId = id(raw);
 
     const attacker = object(
-      source.attacker ??
-        source.attackerSide ??
-        source.attackingSide
+      raw.attacker
     );
 
     const defender = object(
-      source.defender ??
-        source.defenderSide ??
-        source.defendingSide
+      raw.defender
     );
 
-    const attackerStats = object(
-      source.attackerStats ??
-        attacker.stats
-    );
-
-    const defenderStats = object(
-      source.defenderStats ??
-        defender.stats
-    );
-
-    const battleId =
-      id(source);
+    const currentRound =
+      raw.currentRound ??
+      raw.round ??
+      raw.currentRoundId ??
+      null;
 
     return {
       id: battleId,
 
       warId:
-        referenceId(
-          source.warId
-        ) ??
-        referenceId(
-          source.war
-        ),
+        referenceId(raw.warId) ??
+        referenceId(raw.war),
 
       regionId:
-        referenceId(
-          source.regionId
-        ) ??
-        referenceId(
-          source.region
-        ) ??
-        referenceId(
-          source.defenderRegion
-        ) ??
-        referenceId(
-          source.regionObject
-        ),
+        referenceId(raw.regionId) ??
+        referenceId(raw.region) ??
+        referenceId(raw.defenderRegion),
 
       attackerCountryId:
         referenceId(
-          source.attackerCountryId
-        ) ??
-        referenceId(
-          source.attackingCountryId
+          raw.attackerCountryId
         ) ??
         referenceId(
           attacker.countryId
         ) ??
         referenceId(
           attacker.country
-        ) ??
-        referenceId(
-          attacker.id
         ),
 
       defenderCountryId:
         referenceId(
-          source.defenderCountryId
-        ) ??
-        referenceId(
-          source.defendingCountryId
+          raw.defenderCountryId
         ) ??
         referenceId(
           defender.countryId
         ) ??
         referenceId(
           defender.country
-        ) ??
-        referenceId(
-          defender.id
         ),
 
       attackerDamage: num(
-        source.attackerDamage ??
-          source.attackingDamage ??
-          source.attackerTotalDamage ??
+        raw.attackerDamage ??
           attacker.damage ??
-          attacker.totalDamage ??
-          attackerStats.damage ??
-          attackerStats.totalDamage
+          attacker.totalDamage
       ),
 
       defenderDamage: num(
-        source.defenderDamage ??
-          source.defendingDamage ??
-          source.defenderTotalDamage ??
+        raw.defenderDamage ??
           defender.damage ??
-          defender.totalDamage ??
-          defenderStats.damage ??
-          defenderStats.totalDamage
+          defender.totalDamage
       ),
 
       currentRoundId:
-        referenceId(
-          source.currentRoundId
-        ) ??
-        referenceId(
-          source.currentRound
-        ) ??
-        referenceId(
-          source.round
-        ),
+        referenceId(currentRound),
 
       status:
-        source.status ??
-        source.state ??
-        source.battleStatus ??
-        source.phase ??
+        raw.status ??
+        raw.state ??
+        raw.battleStatus ??
         null,
 
       endsAt:
-        source.endsAt ??
-        source.endDate ??
-        source.endTime ??
-        source.endsAtDate ??
+        raw.endsAt ??
+        raw.endDate ??
+        raw.endTime ??
         null,
 
-      raw: source
+      raw
     };
   }
 
@@ -511,114 +565,74 @@ export class GatewayProvider
   ): BattleLiveData {
     const raw = object(value);
 
-    const live = object(
-      raw.liveBattle ??
-        raw.battle
-    );
-
-    const source =
-      Object.keys(live).length > 0
-        ? {
-            ...raw,
-            ...live
-          }
-        : raw;
-
     const attacker = object(
-      source.attacker ??
-        source.attackerSide ??
-        source.attackingSide
+      raw.attacker
     );
 
     const defender = object(
-      source.defender ??
-        source.defenderSide ??
-        source.defendingSide
+      raw.defender
     );
 
-    const attackerStats = object(
-      source.attackerStats ??
-        attacker.stats
-    );
+    const round =
+      raw.round ??
+      raw.currentRound ??
+      raw.battleRound ??
+      {};
 
-    const defenderStats = object(
-      source.defenderStats ??
-        defender.stats
-    );
-
-    const round = object(
-      source.round ??
-        source.currentRound ??
-        source.battleRound
-    );
+    const roundObject = object(round);
 
     return {
       battleId:
         referenceId(
-          source.battleId
+          raw.battleId
         ) ??
         referenceId(
-          source.battle
+          raw.battle
         ) ??
         battleId,
 
       roundNumber: num(
-        source.roundNumber ??
-          round.roundNumber ??
-          round.number
+        raw.roundNumber ??
+          roundObject.roundNumber ??
+          roundObject.number
       ),
 
       roundId:
         referenceId(
-          source.roundId
+          raw.roundId
         ) ??
         referenceId(round),
 
       attackerDamage: num(
-        source.attackerDamage ??
-          source.attackingDamage ??
-          source.attackerTotalDamage ??
+        raw.attackerDamage ??
           attacker.damage ??
-          attacker.totalDamage ??
-          attackerStats.damage ??
-          attackerStats.totalDamage
+          attacker.totalDamage
       ),
 
       defenderDamage: num(
-        source.defenderDamage ??
-          source.defendingDamage ??
-          source.defenderTotalDamage ??
+        raw.defenderDamage ??
           defender.damage ??
-          defender.totalDamage ??
-          defenderStats.damage ??
-          defenderStats.totalDamage
+          defender.totalDamage
       ),
 
       attackerScore: num(
-        source.attackerScore ??
-          source.attackingScore ??
+        raw.attackerScore ??
           attacker.score ??
-          attacker.points ??
-          attackerStats.score ??
-          attackerStats.points
+          attacker.points
       ),
 
       defenderScore: num(
-        source.defenderScore ??
-          source.defendingScore ??
+        raw.defenderScore ??
           defender.score ??
-          defender.points ??
-          defenderStats.score ??
-          defenderStats.points
+          defender.points
       ),
 
       status:
-        source.status ??
-        source.state ??
-        source.phase ??
+        raw.status ??
+        raw.state ??
         null,
 
-      raw: source
+      raw
     };
   }
 
@@ -687,7 +701,7 @@ export class GatewayProvider
     };
   }
 
-  async healthCheck(): Promise<boolean> {
+  async healthCheck() {
     try {
       await this.call(
         "country.getAllCountries",
@@ -718,9 +732,7 @@ export class GatewayProvider
     try {
       const response = await this.call(
         "country.getCountryById",
-        {
-          countryId
-        }
+        { countryId }
       );
 
       return this.normalizeCountry(
@@ -737,10 +749,15 @@ export class GatewayProvider
       {}
     );
 
-    return list(response).map(
-      (value) =>
-        this.normalizeRegion(value)
-    );
+    return regionEntries(response)
+      .map(
+        (value) =>
+          this.normalizeRegion(value)
+      )
+      .filter(
+        (region) =>
+          Boolean(region.id)
+      );
   }
 
   async region(
@@ -749,9 +766,7 @@ export class GatewayProvider
     try {
       const response = await this.call(
         "region.getById",
-        {
-          regionId
-        }
+        { regionId }
       );
 
       return this.normalizeRegion(
@@ -782,9 +797,7 @@ export class GatewayProvider
     try {
       const response = await this.call(
         "battle.getById",
-        {
-          battleId
-        }
+        { battleId }
       );
 
       return this.normalizeBattle(
@@ -861,10 +874,7 @@ export class GatewayProvider
   }
 
   async events(
-    input: Record<
-      string,
-      unknown
-    > = {}
+    input: Record<string, unknown> = {}
   ): Promise<unknown> {
     return this.call(
       "event.getEventsPaginated",
@@ -873,10 +883,7 @@ export class GatewayProvider
   }
 
   async ranking(
-    input: Record<
-      string,
-      unknown
-    > = {}
+    input: Record<string, unknown> = {}
   ): Promise<unknown> {
     return this.call(
       "ranking.getRanking",
@@ -912,10 +919,7 @@ export class GatewayProvider
   }
 
   async marketPrices(
-    input: Record<
-      string,
-      unknown
-    > = {}
+    input: Record<string, unknown> = {}
   ): Promise<unknown> {
     return this.call(
       "itemTrading.getPrices",
