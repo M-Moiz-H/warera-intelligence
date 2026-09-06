@@ -1,5 +1,48 @@
 import { SlashCommandBuilder } from "discord.js";
-import { pakistanIntel, battleAnalysis } from "../../services/intel-service.js";
+import {
+  pakistanIntel,
+  battleAnalysis
+} from "../../services/intel-service.js";
 import { embed, text } from "./_utils.js";
-export const data = new SlashCommandBuilder().setName("frontline").setDescription("Pakistan frontline and active battle intelligence");
-export async function execute(i:any,ctx:any){await i.deferReply();const x=await pakistanIntel(ctx.provider);if(!x)return i.editReply("⚠️ Pakistan was not found.");const lines=x.activeBattles.slice(0,10).map((b:any)=>{const a=battleAnalysis(b);return `⚔️ **${text(b.id)}** — ${a.leader} (${a.attackerShare.toFixed(0)}% / ${a.defenderShare.toFixed(0)}%)`});return i.editReply({embeds:[embed("⚔️ PAKISTAN FRONTLINE",lines.length?lines.join("\n"):"🟢 No Pakistan-involved active battles were returned by the provider.")]});}
+
+export const data = new SlashCommandBuilder()
+  .setName("frontline")
+  .setDescription(
+    "Pakistan frontline and active battle intelligence"
+  );
+
+export async function execute(
+  i: any,
+  ctx: any
+) {
+  await i.deferReply();
+
+  const x = await pakistanIntel(ctx.provider);
+
+  if (!x) {
+    return i.editReply(
+      "⚠️ Pakistan was not found."
+    );
+  }
+
+  const activeBattles = x.battles.active;
+
+  const lines = activeBattles
+    .slice(0, 10)
+    .map((b: any) => {
+      const a = battleAnalysis(b);
+
+      return `⚔️ **${text(b.id)}** — ${a.leader} (${a.attackerShare.toFixed(0)}% / ${a.defenderShare.toFixed(0)}%)`;
+    });
+
+  return i.editReply({
+    embeds: [
+      embed(
+        "⚔️ PAKISTAN FRONTLINE",
+        lines.length
+          ? lines.join("\n")
+          : "🟢 No Pakistan-involved active battles were returned by the provider."
+      )
+    ]
+  });
+}
