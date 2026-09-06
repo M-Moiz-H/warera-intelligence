@@ -3,50 +3,320 @@ import type { WarEraProvider } from "./provider.js";
 import type { Battle, Country, Region } from "../types/models.js";
 import { env } from "../config/env.js";
 
-const object = (x: unknown): Record<string, any> => (x && typeof x === "object" ? x as Record<string, any> : {});
-const list = (x: unknown): any[] => Array.isArray(x) ? x : Object.values(object(x).items ?? object(x).data ?? object(x).countries ?? object(x).regions ?? object(x).battles ?? x ?? {});
-const id = (x: any) => String(x?.id ?? x?._id ?? x?.countryId ?? x?.regionId ?? "");
-const num = (x: any): number | undefined => x == null || Number.isNaN(Number(x)) ? undefined : Number(x);
+const object = (value: unknown): Record<string, any> =>
+  value && typeof value === "object"
+    ? (value as Record<string, any>)
+    : {};
+
+const list = (value: unknown): any[] => {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  const raw = object(value);
+
+  const candidates = [
+    raw.items,
+    raw.data,
+    raw.countries,
+    raw.regions,
+    raw.battles
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+
+    if (
+      candidate &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate)
+    ) {
+      return Object.values(candidate);
+    }
+  }
+
+  if (value && typeof value === "object") {
+    return Object.values(raw);
+  }
+
+  return [];
+};
+
+const id = (value: any): string =>
+  String(
+    value?.id ??
+      value?._id ??
+      value?.countryId ??
+      value?.regionId ??
+      value?.battleId ??
+      ""
+  );
+
+const num = (value: any): number | undefined => {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  const number = Number(value);
+
+  return Number.isNaN(number) ? undefined : number;
+};
 
 export class GatewayProvider implements WarEraProvider {
   name = "WarEra API";
-  private readonly clients = [
-    new TrpcClient(env.wareraApiBaseUrl),
-    ...(env.wareraGatewayUrl && env.wareraGatewayUrl !== env.wareraApiBaseUrl ? [new TrpcClient(env.wareraGatewayUrl)] : [])
-  ];
 
-  private async call<T>(procedure: string, input?: unknown): Promise<T> {
-    const errors: string[] = [];
-    for (const client of this.clients) {
-      try { return await client.get<T>(procedure, input); }
-      catch (error) { errors.push(error instanceof Error ? error.message : String(error)); }
+  private readonly clients: TrpcClient[];
+
+  constructor() {
+    const official = new TrpcClient(
+      env.wareraApiBaseUrl,
+      env.wareraApiKey
+    );
+
+    const clients = [official];
+
+    if (
+      env.wareraGatewayUrl &&
+      env.wareraGatewayUrl !== env.wareraApiBaseUrl
+    ) {
+      clients.push(
+        new TrpcClient(
+          env.wareraGatewayUrl,
+          env.wareraApiKey
+        )
+      );
     }
-    throw new Error(`${procedure} failed on all providers: ${errors.join(" | ")}`);
+
+    this.clients = clients;
   }
 
-  private normalizeCountry(x: any): Country {
-    const raw = object(x); const countryId = id(raw);
-    return { id: countryId, name: String(raw.name ?? raw.countryName ?? raw.title ?? countryId), code: raw.code ?? raw.isoCode, population: num(raw.population ?? raw.populationCount), militaryRank: num(raw.militaryRank), economyRank: num(raw.economyRank), raw };
-  }
-  private normalizeRegion(x: any): Region {
-    const raw = object(x); const regionId = id(raw);
-    return { id: regionId, name: String(raw.name ?? raw.regionName ?? regionId), countryId: raw.countryId ?? raw.originalCountryId ?? raw.coreCountryId ?? null, ownerCountryId: raw.ownerCountryId ?? raw.countryOwnerId ?? raw.country?.id ?? null, isCore: Boolean(raw.isCore ?? raw.core ?? false), resistance: num(raw.resistance ?? raw.resistancePercentage), raw };
-  }
-  private normalizeBattle(x: any): Battle {
-    const raw = object(x); const battleId = id(raw);
-    return { id: battleId, warId: raw.warId ?? null, regionId: raw.regionId ?? null, attackerCountryId: raw.attackerCountryId ?? raw.attacker?.countryId ?? null, defenderCountryId: raw.defenderCountryId ?? raw.defender?.countryId ?? null, attackerDamage: num(raw.attackerDamage ?? raw.attacker?.damage), defenderDamage: num(raw.defenderDamage ?? raw.defender?.damage), status: raw.status ?? raw.state ?? null, endsAt: raw.endsAt ?? raw.endDate ?? null, raw };
+  private async call<T>(
+    procedure: string,
+    input: unknown = {}
+  ): Promise<T> {
+    const errors: string[] = [];
+
+    for (const client of this.clients) {
+      try {
+        return await client.get<T>(procedure, input ?? {});
+      } catch (error) {
+        errors.push(
+          error instanceof Error
+            ? error.message
+            : String(error)
+        );
+      }
+    }
+
+    throw new Error(
+      `${procedure} failed on all providers: ${errors.join(" | ")}`
+    );
   }
 
-  async healthCheck() { try { await this.call("country.getAllCountries"); return true; } catch { return false; } }
-  async countries() { return list(await this.call("country.getAllCountries")).map((x) => this.normalizeCountry(x)); }
-  async country(countryId: string) { try { return this.normalizeCountry(await this.call("country.getCountryById", { id: countryId })); } catch { return null; } }
-  async regions() { return list(await this.call("region.getRegionsObject")).map((x) => this.normalizeRegion(x)); }
-  async region(regionId: string) { try { return this.normalizeRegion(await this.call("region.getById", { id: regionId })); } catch { return null; } }
-  async battles(input?: unknown) { return list(await this.call("battle.getBattles", input)).map((x) => this.normalizeBattle(x)); }
-  async events(input?: unknown) { return this.call("event.getEventsPaginated", input); }
-  async ranking(input?: unknown) { return this.call("ranking.getRanking", input); }
-  async militaryUnit(id: string) { return this.call("mu.getById", { id }); }
-  async party(id: string) { return this.call("party.getById", { id }); }
-  async user(id: string) { return this.call("user.getUserLite", { id }); }
-  async marketPrices(input?: unknown) { return this.call("itemTrading.getPrices", input); }
+  private normalizeCountry(value: any): Country {
+    const raw = object(value);
+    const countryId = id(raw);
+
+    return {
+      id: countryId,
+      name: String(
+        raw.name ??
+          raw.countryName ??
+          raw.title ??
+          countryId
+      ),
+      code: raw.code ?? raw.isoCode,
+      population: num(
+        raw.population ?? raw.populationCount
+      ),
+      militaryRank: num(raw.militaryRank),
+      economyRank: num(raw.economyRank),
+      raw
+    };
+  }
+
+  private normalizeRegion(value: any): Region {
+    const raw = object(value);
+    const regionId = id(raw);
+
+    return {
+      id: regionId,
+      name: String(
+        raw.name ??
+          raw.regionName ??
+          regionId
+      ),
+      countryId:
+        raw.countryId ??
+        raw.originalCountryId ??
+        raw.coreCountryId ??
+        null,
+      ownerCountryId:
+        raw.ownerCountryId ??
+        raw.countryOwnerId ??
+        raw.country?.id ??
+        null,
+      isCore: Boolean(
+        raw.isCore ?? raw.core ?? false
+      ),
+      resistance: num(
+        raw.resistance ??
+          raw.resistancePercentage
+      ),
+      raw
+    };
+  }
+
+  private normalizeBattle(value: any): Battle {
+    const raw = object(value);
+    const battleId = id(raw);
+
+    return {
+      id: battleId,
+      warId: raw.warId ?? null,
+      regionId:
+        raw.regionId ??
+        raw.region?.id ??
+        null,
+      attackerCountryId:
+        raw.attackerCountryId ??
+        raw.attacker?.countryId ??
+        raw.attacker?.id ??
+        null,
+      defenderCountryId:
+        raw.defenderCountryId ??
+        raw.defender?.countryId ??
+        raw.defender?.id ??
+        null,
+      attackerDamage: num(
+        raw.attackerDamage ??
+          raw.attacker?.damage
+      ),
+      defenderDamage: num(
+        raw.defenderDamage ??
+          raw.defender?.damage
+      ),
+      status:
+        raw.status ??
+        raw.state ??
+        null,
+      endsAt:
+        raw.endsAt ??
+        raw.endDate ??
+        null,
+      raw
+    };
+  }
+
+  async healthCheck() {
+    try {
+      await this.call("country.getAllCountries", {});
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async countries() {
+    const response = await this.call(
+      "country.getAllCountries",
+      {}
+    );
+
+    return list(response).map((value) =>
+      this.normalizeCountry(value)
+    );
+  }
+
+  async country(countryId: string) {
+    try {
+      const response = await this.call(
+        "country.getCountryById",
+        { countryId }
+      );
+
+      return this.normalizeCountry(response);
+    } catch {
+      return null;
+    }
+  }
+
+  async regions() {
+    const response = await this.call(
+      "region.getRegionsObject",
+      {}
+    );
+
+    return list(response).map((value) =>
+      this.normalizeRegion(value)
+    );
+  }
+
+  async region(regionId: string) {
+    try {
+      const response = await this.call(
+        "region.getById",
+        { regionId }
+      );
+
+      return this.normalizeRegion(response);
+    } catch {
+      return null;
+    }
+  }
+
+  async battles(input: Record<string, unknown> = {}) {
+    const response = await this.call(
+      "battle.getBattles",
+      input
+    );
+
+    return list(response).map((value) =>
+      this.normalizeBattle(value)
+    );
+  }
+
+  async events(input: Record<string, unknown> = {}) {
+    return this.call(
+      "event.getEventsPaginated",
+      input
+    );
+  }
+
+  async ranking(input: Record<string, unknown> = {}) {
+    return this.call(
+      "ranking.getRanking",
+      input
+    );
+  }
+
+  async militaryUnit(id: string) {
+    return this.call(
+      "mu.getById",
+      { id }
+    );
+  }
+
+  async party(id: string) {
+    return this.call(
+      "party.getById",
+      { id }
+    );
+  }
+
+  async user(id: string) {
+    return this.call(
+      "user.getUserLite",
+      { id }
+    );
+  }
+
+  async marketPrices(input: Record<string, unknown> = {}) {
+    return this.call(
+      "itemTrading.getPrices",
+      input
+    );
+  }
 }
