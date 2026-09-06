@@ -16,24 +16,54 @@ export const data =
   new SlashCommandBuilder()
     .setName("battle")
     .setDescription(
-      "Analyze active battles"
+      "Analyze live and recent battles"
     )
     .addStringOption((option) =>
       option
         .setName("id")
         .setDescription(
-          "Battle ID (optional)"
+          "Specific battle ID (optional)"
         )
     );
 
+function shortId(
+  value: string
+) {
+  return value.length > 18
+    ? `${value.slice(0, 18)}…`
+    : value;
+}
+
+function battleColor(
+  status: string | null | undefined,
+  totalDamage: number
+) {
+  const value =
+    (status ?? "").toLowerCase();
+
+  if (
+    value.includes("active") ||
+    value.includes("ongoing") ||
+    value.includes("live")
+  ) {
+    return 0xed4245;
+  }
+
+  if (totalDamage > 0) {
+    return 0xfee75c;
+  }
+
+  return 0x5865f2;
+}
+
 export async function execute(
-  i: any,
+  interaction: any,
   ctx: any
 ) {
-  await i.deferReply();
+  await interaction.deferReply();
 
   const wanted =
-    i.options.getString("id");
+    interaction.options.getString("id");
 
   const battles =
     await enrichedBattles(
@@ -47,63 +77,157 @@ export async function execute(
     );
 
   if (!battles.length) {
-    return i.editReply(
-      "⚠️ No matching battle was returned."
+    return interaction.editReply(
+      "⚠️ No matching battle was returned by the live provider."
     );
   }
 
-  const e = embed(
-    "⚔️ BATTLE INTELLIGENCE"
-  );
-
-  for (
-    const battle of battles.slice(
-      0,
-      5
-    )
-  ) {
+  if (wanted) {
+    const battle = battles[0];
     const analysis =
       battleAnalysis(battle);
 
-    const detailStatus =
-      battle.dataSource.detailLoaded
-        ? "Detailed"
-        : "Summary";
-
-    const liveStatus =
+    const liveLabel =
       battle.dataSource.liveLoaded
-        ? "Live"
-        : "No live data";
+        ? "🟢 Live data loaded"
+        : "🟡 Summary/detail data";
 
-    e.addFields({
-      name: `Battle ${text(
+    const response = embed(
+      "⚔️ BATTLE INTELLIGENCE",
+      `**Battle:** \`${text(
         battle.id
-      )}`,
+      )}\`
 
-      value: [
-        `Status: **${text(
-          battle.status ??
-            "Unknown"
-        )}**`,
+${liveLabel}`
+    )
+      .setColor(
+        battleColor(
+          battle.status,
+          analysis.hasDamageData
+            ? analysis.totalDamage
+            : 0
+        )
+      )
+      .addFields(
+        {
+          name: "📊 Status",
+          value: `**${text(
+            battle.status,
+            "Unavailable"
+          )}**`,
+          inline: true
+        },
+        {
+          name: "🔥 Total Damage",
+          value: analysis.hasDamageData
+            ? `**${analysis.totalDamage.toLocaleString()}**`
+            : "**Unavailable**",
+          inline: true
+        },
+        {
+          name: "⚖️ Momentum",
+          value: `**${analysis.leader}**`,
+          inline: true
+        },
+        {
+          name: "🗡️ Attacker",
+          value: analysis.hasAttackerDamage
+            ? `Damage: **${analysis.attackerDamage.toLocaleString()}**
+Share: **${analysis.attackerShare.toFixed(
+                1
+              )}%**`
+            : "Damage: **Unavailable**",
+          inline: true
+        },
+        {
+          name: "🛡️ Defender",
+          value: analysis.hasDefenderDamage
+            ? `Damage: **${analysis.defenderDamage.toLocaleString()}**
+Share: **${analysis.defenderShare.toFixed(
+                1
+              )}%**`
+            : "Damage: **Unavailable**",
+          inline: true
+        },
+        {
+          name: "📡 Data Source",
+          value: [
+            battle.dataSource.detailLoaded
+              ? "Detail: **Loaded**"
+              : "Detail: **Unavailable**",
+            battle.dataSource.liveLoaded
+              ? "Live: **Loaded**"
+              : "Live: **Unavailable**"
+          ].join("\n"),
+          inline: true
+        }
+      );
 
-        `Damage: **${analysis.attackerDamage.toLocaleString()} / ${analysis.defenderDamage.toLocaleString()}**`,
+    if (battle.regionId) {
+      response.addFields({
+        name: "📍 Region",
+        value: `\`${text(
+          battle.regionId
+        )}\``,
+        inline: false
+      });
+    }
 
-        `Momentum: **${analysis.leader}**`,
-
-        `Data: ${detailStatus} • ${liveStatus}`,
-
-        battle.regionId
-          ? `Region: \`${text(
-              battle.regionId
-            )}\``
-          : null
-      ]
-        .filter(Boolean)
-        .join("\n")
+    return interaction.editReply({
+      embeds: [response]
     });
   }
 
-  return i.editReply({
-    embeds: [e]
+  const response = embed(
+    "⚔️ BATTLE INTELLIGENCE",
+    `Live overview of **${Math.min(
+      battles.length,
+      5
+    )}** battle${
+      Math.min(battles.length, 5) === 1
+        ? ""
+        : "s"
+    }.`
+  ).setColor(0x5865f2);
+
+  for (const battle of battles.slice(0, 5)) {
+    const analysis =
+      battleAnalysis(battle);
+
+    const dataLabel =
+      battle.dataSource.liveLoaded
+        ? "🟢 Live"
+        : battle.dataSource.detailLoaded
+          ? "🟡 Detailed"
+          : "⚪ Summary";
+
+    response.addFields({
+      name: `⚔️ ${shortId(
+        text(battle.id)
+      )}`,
+
+      value: [
+        `📌 Status: **${text(
+          battle.status,
+          "Unavailable"
+        )}**`,
+        analysis.hasDamageData
+          ? `🔥 Damage: **${analysis.attackerDamage.toLocaleString()} / ${analysis.defenderDamage.toLocaleString()}**`
+          : "🔥 Damage: **Unavailable**",
+        `⚖️ Momentum: **${analysis.leader}**`,
+        `📡 ${dataLabel}`
+      ].join("\n"),
+
+      inline: false
+    });
+  }
+
+  response.setFooter({
+    text:
+      "Tip: Use /battle id:<battle ID> for a detailed view"
+  });
+
+  return interaction.editReply({
+    embeds: [response]
   });
 }
