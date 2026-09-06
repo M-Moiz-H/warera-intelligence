@@ -1,2 +1,0 @@
-import {supabase} from "../database/supabase.js";
-export async function snapshotResistance(regionId:string,resistance:number,ownerCountryId?:string){const {error}=await supabase.from("resistance_snapshots").insert({region_id:regionId,resistance,owner_country_id:ownerCountryId??null});if(error)throw error}
