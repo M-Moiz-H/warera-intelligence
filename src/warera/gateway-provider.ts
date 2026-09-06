@@ -17,9 +17,9 @@ import type {
 
 import { env } from "../config/env.js";
 
-const object = (
+function object(
   value: unknown
-): Record<string, any> => {
+): Record<string, any> {
   if (
     value &&
     typeof value === "object" &&
@@ -29,11 +29,11 @@ const object = (
   }
 
   return {};
-};
+}
 
-const list = (
+function list(
   value: unknown
-): any[] => {
+): any[] {
   if (Array.isArray(value)) {
     return value;
   }
@@ -56,30 +56,14 @@ const list = (
     if (Array.isArray(candidate)) {
       return candidate;
     }
-
-    if (
-      candidate &&
-      typeof candidate === "object" &&
-      !Array.isArray(candidate)
-    ) {
-      return Object.values(candidate);
-    }
-  }
-
-  if (
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  ) {
-    return Object.values(raw);
   }
 
   return [];
-};
+}
 
-const id = (
+function id(
   value: unknown
-): string => {
+): string {
   if (
     typeof value === "string" ||
     typeof value === "number"
@@ -97,11 +81,11 @@ const id = (
       raw.battleId ??
       ""
   );
-};
+}
 
-const referenceId = (
+function referenceId(
   value: unknown
-): string | null => {
+): string | null {
   if (
     value === null ||
     value === undefined
@@ -127,15 +111,19 @@ const referenceId = (
     raw.value ??
     null;
 
-  return result === null ||
+  if (
+    result === null ||
     result === undefined
-    ? null
-    : String(result);
-};
+  ) {
+    return null;
+  }
 
-const num = (
+  return String(result);
+}
+
+function num(
   value: unknown
-): number | undefined => {
+): number | undefined {
   if (
     value === null ||
     value === undefined ||
@@ -149,12 +137,12 @@ const num = (
   return Number.isFinite(parsed)
     ? parsed
     : undefined;
-};
+}
 
-const nested = (
+function nested(
   value: unknown,
   ...keys: string[]
-): unknown => {
+): unknown {
   let current: any = value;
 
   for (const key of keys) {
@@ -170,7 +158,7 @@ const nested = (
   }
 
   return current;
-};
+}
 
 export class GatewayProvider
   implements WarEraProvider
@@ -355,11 +343,10 @@ export class GatewayProvider
         currentOwnerCountryId,
 
       isCore:
-        Boolean(originalCountryId) ||
         Boolean(
           raw.isCore ??
             raw.core ??
-            false
+            originalCountryId
         ),
 
       resistance,
@@ -372,84 +359,149 @@ export class GatewayProvider
     value: unknown
   ): Battle {
     const raw = object(value);
-    const battleId = id(raw);
+
+    const battle = object(
+      raw.battle
+    );
+
+    const source =
+      Object.keys(battle).length > 0
+        ? {
+            ...raw,
+            ...battle
+          }
+        : raw;
 
     const attacker = object(
-      raw.attacker
+      source.attacker ??
+        source.attackerSide ??
+        source.attackingSide
     );
 
     const defender = object(
-      raw.defender
+      source.defender ??
+        source.defenderSide ??
+        source.defendingSide
     );
 
-    const currentRound =
-      raw.currentRound ??
-      raw.round ??
-      raw.currentRoundId ??
-      null;
+    const attackerStats = object(
+      source.attackerStats ??
+        attacker.stats
+    );
+
+    const defenderStats = object(
+      source.defenderStats ??
+        defender.stats
+    );
+
+    const battleId =
+      id(source);
 
     return {
       id: battleId,
 
       warId:
-        referenceId(raw.warId) ??
-        referenceId(raw.war),
+        referenceId(
+          source.warId
+        ) ??
+        referenceId(
+          source.war
+        ),
 
       regionId:
-        referenceId(raw.regionId) ??
-        referenceId(raw.region) ??
-        referenceId(raw.defenderRegion),
+        referenceId(
+          source.regionId
+        ) ??
+        referenceId(
+          source.region
+        ) ??
+        referenceId(
+          source.defenderRegion
+        ) ??
+        referenceId(
+          source.regionObject
+        ),
 
       attackerCountryId:
         referenceId(
-          raw.attackerCountryId
+          source.attackerCountryId
+        ) ??
+        referenceId(
+          source.attackingCountryId
         ) ??
         referenceId(
           attacker.countryId
         ) ??
         referenceId(
           attacker.country
+        ) ??
+        referenceId(
+          attacker.id
         ),
 
       defenderCountryId:
         referenceId(
-          raw.defenderCountryId
+          source.defenderCountryId
+        ) ??
+        referenceId(
+          source.defendingCountryId
         ) ??
         referenceId(
           defender.countryId
         ) ??
         referenceId(
           defender.country
+        ) ??
+        referenceId(
+          defender.id
         ),
 
       attackerDamage: num(
-        raw.attackerDamage ??
+        source.attackerDamage ??
+          source.attackingDamage ??
+          source.attackerTotalDamage ??
           attacker.damage ??
-          attacker.totalDamage
+          attacker.totalDamage ??
+          attackerStats.damage ??
+          attackerStats.totalDamage
       ),
 
       defenderDamage: num(
-        raw.defenderDamage ??
+        source.defenderDamage ??
+          source.defendingDamage ??
+          source.defenderTotalDamage ??
           defender.damage ??
-          defender.totalDamage
+          defender.totalDamage ??
+          defenderStats.damage ??
+          defenderStats.totalDamage
       ),
 
       currentRoundId:
-        referenceId(currentRound),
+        referenceId(
+          source.currentRoundId
+        ) ??
+        referenceId(
+          source.currentRound
+        ) ??
+        referenceId(
+          source.round
+        ),
 
       status:
-        raw.status ??
-        raw.state ??
-        raw.battleStatus ??
+        source.status ??
+        source.state ??
+        source.battleStatus ??
+        source.phase ??
         null,
 
       endsAt:
-        raw.endsAt ??
-        raw.endDate ??
-        raw.endTime ??
+        source.endsAt ??
+        source.endDate ??
+        source.endTime ??
+        source.endsAtDate ??
         null,
 
-      raw
+      raw: source
     };
   }
 
@@ -459,75 +511,114 @@ export class GatewayProvider
   ): BattleLiveData {
     const raw = object(value);
 
+    const live = object(
+      raw.liveBattle ??
+        raw.battle
+    );
+
+    const source =
+      Object.keys(live).length > 0
+        ? {
+            ...raw,
+            ...live
+          }
+        : raw;
+
     const attacker = object(
-      raw.attacker
+      source.attacker ??
+        source.attackerSide ??
+        source.attackingSide
     );
 
     const defender = object(
-      raw.defender
+      source.defender ??
+        source.defenderSide ??
+        source.defendingSide
     );
 
-    const round =
-      raw.round ??
-      raw.currentRound ??
-      raw.battleRound ??
-      {};
+    const attackerStats = object(
+      source.attackerStats ??
+        attacker.stats
+    );
 
-    const roundObject = object(round);
+    const defenderStats = object(
+      source.defenderStats ??
+        defender.stats
+    );
+
+    const round = object(
+      source.round ??
+        source.currentRound ??
+        source.battleRound
+    );
 
     return {
       battleId:
-
         referenceId(
-          raw.battleId
+          source.battleId
         ) ??
         referenceId(
-          raw.battle
+          source.battle
         ) ??
         battleId,
 
       roundNumber: num(
-        raw.roundNumber ??
-          roundObject.roundNumber ??
-          roundObject.number
+        source.roundNumber ??
+          round.roundNumber ??
+          round.number
       ),
 
       roundId:
         referenceId(
-          raw.roundId
+          source.roundId
         ) ??
         referenceId(round),
 
       attackerDamage: num(
-        raw.attackerDamage ??
+        source.attackerDamage ??
+          source.attackingDamage ??
+          source.attackerTotalDamage ??
           attacker.damage ??
-          attacker.totalDamage
+          attacker.totalDamage ??
+          attackerStats.damage ??
+          attackerStats.totalDamage
       ),
 
       defenderDamage: num(
-        raw.defenderDamage ??
+        source.defenderDamage ??
+          source.defendingDamage ??
+          source.defenderTotalDamage ??
           defender.damage ??
-          defender.totalDamage
+          defender.totalDamage ??
+          defenderStats.damage ??
+          defenderStats.totalDamage
       ),
 
       attackerScore: num(
-        raw.attackerScore ??
+        source.attackerScore ??
+          source.attackingScore ??
           attacker.score ??
-          attacker.points
+          attacker.points ??
+          attackerStats.score ??
+          attackerStats.points
       ),
 
       defenderScore: num(
-        raw.defenderScore ??
+        source.defenderScore ??
+          source.defendingScore ??
           defender.score ??
-          defender.points
+          defender.points ??
+          defenderStats.score ??
+          defenderStats.points
       ),
 
       status:
-        raw.status ??
-        raw.state ??
+        source.status ??
+        source.state ??
+        source.phase ??
         null,
 
-      raw
+      raw: source
     };
   }
 
@@ -596,7 +687,7 @@ export class GatewayProvider
     };
   }
 
-  async healthCheck() {
+  async healthCheck(): Promise<boolean> {
     try {
       await this.call(
         "country.getAllCountries",
@@ -627,7 +718,9 @@ export class GatewayProvider
     try {
       const response = await this.call(
         "country.getCountryById",
-        { countryId }
+        {
+          countryId
+        }
       );
 
       return this.normalizeCountry(
@@ -656,7 +749,9 @@ export class GatewayProvider
     try {
       const response = await this.call(
         "region.getById",
-        { regionId }
+        {
+          regionId
+        }
       );
 
       return this.normalizeRegion(
@@ -687,7 +782,9 @@ export class GatewayProvider
     try {
       const response = await this.call(
         "battle.getById",
-        { battleId }
+        {
+          battleId
+        }
       );
 
       return this.normalizeBattle(
@@ -764,7 +861,10 @@ export class GatewayProvider
   }
 
   async events(
-    input: Record<string, unknown> = {}
+    input: Record<
+      string,
+      unknown
+    > = {}
   ): Promise<unknown> {
     return this.call(
       "event.getEventsPaginated",
@@ -773,7 +873,10 @@ export class GatewayProvider
   }
 
   async ranking(
-    input: Record<string, unknown> = {}
+    input: Record<
+      string,
+      unknown
+    > = {}
   ): Promise<unknown> {
     return this.call(
       "ranking.getRanking",
@@ -809,7 +912,10 @@ export class GatewayProvider
   }
 
   async marketPrices(
-    input: Record<string, unknown> = {}
+    input: Record<
+      string,
+      unknown
+    > = {}
   ): Promise<unknown> {
     return this.call(
       "itemTrading.getPrices",
