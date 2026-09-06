@@ -6,27 +6,72 @@ export class TrpcClient {
     private readonly apiKey = env.wareraApiKey
   ) {}
 
-  async get<T>(procedure: string, input?: unknown): Promise<T> {
-    const url = new URL(`${this.base.replace(/\/$/, "")}/${procedure}`);
-    if (input !== undefined) url.searchParams.set("input", JSON.stringify(input));
-    const headers: Record<string, string> = { accept: "application/json" };
+  async get<T>(procedure: string, input: unknown = {}): Promise<T> {
+    const base = this.base.replace(/\/$/, "");
+    const url = new URL(`${base}/${procedure}`);
+
+    // WarEra tRPC procedures expect an input object.
+    url.searchParams.set("input", JSON.stringify(input ?? {}));
+
+    const headers: Record<string, string> = {
+      accept: "application/json"
+    };
+
     if (this.apiKey) {
       headers["X-API-Key"] = this.apiKey;
-      headers["Authorization"] = `Bearer ${this.apiKey}`;
     }
-    const response = await fetch(url, { headers, signal: AbortSignal.timeout(15_000) });
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers,
+      signal: AbortSignal.timeout(15_000)
+    });
+
     if (!response.ok) {
       const text = await response.text().catch(() => "");
-      throw new Error(`${procedure}: ${response.status} ${response.statusText}${text ? ` — ${text.slice(0, 180)}` : ""}`);
+
+      throw new Error(
+        `${procedure}: ${response.status} ${response.statusText}` +
+          (text ? ` — ${text.slice(0, 300)}` : "")
+      );
     }
-    return this.unwrap(await response.json()) as T;
+
+    const body = await response.json();
+    return this.unwrap(body) as T;
   }
 
-  private unwrap(body: any): unknown {
-    if (Array.isArray(body)) return body.map((x) => this.unwrap(x));
-    if (body?.result?.data?.json !== undefined) return body.result.data.json;
-    if (body?.result?.data !== undefined) return body.result.data;
-    if (body?.json !== undefined) return body.json;
+  private unwrap(body: unknown): unknown {
+    if (Array.isArray(body)) {
+      return body.map((item) => this.unwrap(item));
+    }
+
+    if (!body || typeof body !== "object") {
+      return body;
+    }
+
+    const data = body as Record<string, unknown>;
+
+    const result = data.result;
+    if (result && typeof result === "object") {
+      const resultData = (result as Record<string, unknown>).data;
+
+      if (resultData && typeof resultData === "object") {
+        const resultRecord = resultData as Record<string, unknown>;
+
+        if ("json" in resultRecord) {
+          return resultRecord.json;
+        }
+      }
+
+      if (resultData !== undefined) {
+        return resultData;
+      }
+    }
+
+    if ("json" in data) {
+      return data.json;
+    }
+
     return body;
   }
 }
