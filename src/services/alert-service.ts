@@ -1,2 +1,0 @@
-import {EmbedBuilder,TextChannel} from "discord.js";
-export async function alert(channel:TextChannel,title:string,text:string){await channel.send({embeds:[new EmbedBuilder().setTitle(`🚨 ${title}`).setDescription(text).setTimestamp()]})}
