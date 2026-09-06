@@ -1125,4 +1125,12 @@ export class GatewayProvider
     );
   }
 
-    
+  async marketPrices(
+    input: Record<string, unknown> = {}
+  ): Promise<unknown> {
+    return this.call(
+      "itemTrading.getPrices",
+      input
+    );
+  }
+}
