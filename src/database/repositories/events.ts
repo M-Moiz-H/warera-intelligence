@@ -1,3 +1,25 @@
-import {supabase} from "../supabase.js";
-import type {IntelEvent} from "../../types/models.js";
-export async function saveEvent(e:IntelEvent){const {error}=await supabase.from("intelligence_events").insert({event_type:e.type,severity:e.severity,country_id:e.countryId??null,region_id:e.regionId??null,title:e.title,summary:e.summary??null,payload:e.payload??({}),occurred_at:(e.occurredAt??new Date()).toISOString()});if(error)throw error}
+import { supabase } from "../supabase.js";
+import type { IntelEvent } from "../../types/models.js";
+
+export async function saveEvent(event: IntelEvent): Promise<void> {
+  const occurredAt = event.occurredAt
+    ? new Date(event.occurredAt).toISOString()
+    : new Date().toISOString();
+
+  const { error } = await supabase
+    .from("intelligence_events")
+    .insert({
+      event_type: event.type,
+      severity: event.severity,
+      country_id: event.countryId ?? null,
+      region_id: event.regionId ?? null,
+      title: event.title,
+      summary: event.summary ?? null,
+      payload: event.payload ?? {},
+      occurred_at: occurredAt
+    });
+
+  if (error) {
+    throw error;
+  }
+}
