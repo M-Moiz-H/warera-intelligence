@@ -62,9 +62,11 @@ export async function execute(
           `⚔️ Active: **${intel.battles.active.length}**`,
           `🗡️ Attacking: **${intel.battles.attackingCount}**`,
           `🛡️ Defending: **${intel.battles.defendingCount}**`,
-          `💥 Total damage: **${n(
-            intel.battles.totalDamage
-          )}**`
+          intel.battles.damageDataCount > 0
+          ? `💥 Total damage: **${n(
+              intel.battles.totalDamage
+            )}**`
+          : "💥 Total damage: **Unavailable**"
         ].join("\n")
       : "🟢 No active Pakistan-related battles detected.";
 
