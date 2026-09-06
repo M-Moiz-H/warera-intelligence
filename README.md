@@ -26,3 +26,12 @@ cp .env.example .env
 npm run deploy:commands
 npm run dev
 ```
+## Full-version data flow
+
+The production bot uses a provider abstraction with the official WarEra API as the primary source and the configured Gateway as a fallback. Scheduled syncs store country and region intelligence in Supabase, while commands query live data for the most current view.
+
+### Required database setup
+Run `supabase/schema.sql` in the Supabase SQL Editor before deploying a fresh database.
+
+### Security
+Never commit `.env`, Discord tokens, Supabase service-role keys, or WarEra API keys. Use Railway variables in production.
