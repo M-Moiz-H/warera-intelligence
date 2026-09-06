@@ -1,15 +1,24 @@
-import { SlashCommandBuilder } from "discord.js";
 import {
-  pakistanIntel,
+  SlashCommandBuilder
+} from "discord.js";
+
+import {
+  liveCountry,
+  pakistanBattles,
   battleAnalysis
 } from "../../services/intel-service.js";
-import { embed, text } from "./_utils.js";
 
-export const data = new SlashCommandBuilder()
-  .setName("frontline")
-  .setDescription(
-    "Pakistan frontline and active battle intelligence"
-  );
+import {
+  embed,
+  text
+} from "./_utils.js";
+
+export const data =
+  new SlashCommandBuilder()
+    .setName("frontline")
+    .setDescription(
+      "Pakistan frontline and active battle intelligence"
+    );
 
 export async function execute(
   i: any,
@@ -17,31 +26,70 @@ export async function execute(
 ) {
   await i.deferReply();
 
-  const x = await pakistanIntel(ctx.provider);
+  const pakistan =
+    await liveCountry(
+      ctx.provider,
+      "Pakistan"
+    );
 
-  if (!x) {
+  if (!pakistan) {
     return i.editReply(
       "⚠️ Pakistan was not found."
     );
   }
 
-  const activeBattles = x.battles.active;
+  const battles =
+    await pakistanBattles(
+      ctx.provider,
+      pakistan.id
+    );
 
-  const lines = activeBattles
+  const lines = battles
     .slice(0, 10)
-    .map((b: any) => {
-      const a = battleAnalysis(b);
+    .map((battle) => {
+      const analysis =
+        battleAnalysis(battle);
 
-      return `⚔️ **${text(b.id)}** — ${a.leader} (${a.attackerShare.toFixed(0)}% / ${a.defenderShare.toFixed(0)}%)`;
+      const role =
+        battle.attackerCountryId ===
+          pakistan.id
+          ? "ATTACKING"
+          : battle.defenderCountryId ===
+              pakistan.id
+            ? "DEFENDING"
+            : "INVOLVED";
+
+      const live =
+        battle.dataSource.liveLoaded
+          ? "🟢 LIVE"
+          : "🟡";
+
+      return [
+        `${live} **${text(
+          battle.id
+        )}**`,
+
+        `Role: **${role}**`,
+
+        `Status: **${text(
+          battle.status ??
+            "Unknown"
+        )}**`,
+
+        `Momentum: **${analysis.leader}**`,
+
+        `Damage: **${analysis.attackerDamage.toLocaleString()} / ${analysis.defenderDamage.toLocaleString()}**`
+      ].join(" • ");
     });
 
   return i.editReply({
     embeds: [
       embed(
         "⚔️ PAKISTAN FRONTLINE",
+
         lines.length
-          ? lines.join("\n")
-          : "🟢 No Pakistan-involved active battles were returned by the provider."
+          ? lines.join("\n\n")
+          : "🟢 No Pakistan-related active battles were confirmed by the live provider."
       )
     ]
   });
