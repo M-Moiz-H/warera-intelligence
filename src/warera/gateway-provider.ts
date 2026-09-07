@@ -118,6 +118,116 @@ const firstNumber = (
   return undefined;
 };
 
+/**
+ * Unwrap transport-level response containers while preserving sibling fields.
+ *
+ * Battle endpoints can return an envelope such as:
+ * { battle: { ... }, round: { ... } }
+ *
+ * `unwrapEntity()` intentionally unwraps `battle`, which is useful for ordinary
+ * entity responses but would discard the sibling `round` payload here.
+ */
+const unwrapResponseEnvelope = (
+  value: unknown
+): unknown => {
+  let current = value;
+
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (Array.isArray(current)) {
+      const candidate = current.find(
+        (entry) =>
+          entry !== null &&
+          entry !== undefined
+      );
+
+      if (candidate === undefined) {
+        return {};
+      }
+
+      current = candidate;
+      continue;
+    }
+
+    if (!isRecord(current)) {
+      return current;
+    }
+
+    const raw = current;
+    const directKeys = [
+      "json",
+      "result",
+      "data",
+      "item"
+    ];
+
+    let changed = false;
+
+    for (const key of directKeys) {
+      const candidate = raw[key];
+
+      if (
+        candidate !== undefined &&
+        candidate !== null &&
+        (
+          Array.isArray(candidate) ||
+          isRecord(candidate)
+        )
+      ) {
+        current = candidate;
+        changed = true;
+        break;
+      }
+    }
+
+    if (!changed) {
+      return current;
+    }
+  }
+
+  return current;
+};
+
+const battleEnvelope = (
+  value: unknown
+): {
+  envelope: JsonRecord;
+  battle: JsonRecord;
+  round: JsonRecord;
+  raw: JsonRecord;
+} => {
+  const envelope = object(
+    unwrapResponseEnvelope(value)
+  );
+
+  const battle = isRecord(envelope.battle)
+    ? object(unwrapEntity(envelope.battle))
+    : object(unwrapEntity(envelope));
+
+  const round = object(
+    envelope.round ??
+      envelope.currentRound ??
+      envelope.battleRound ??
+      battle.round ??
+      battle.currentRound ??
+      battle.battleRound
+  );
+
+  return {
+    envelope,
+    battle,
+    round,
+    raw: {
+      ...envelope,
+      ...battle,
+      round,
+      currentRound:
+        battle.currentRound ??
+        envelope.currentRound ??
+        round
+    }
+  };
+};
+
 const unwrapEntity = (
   value: unknown
 ): unknown => {
@@ -420,7 +530,9 @@ const battleSideDamage = (
 
   return firstNumber(raw, [
     `${side}Damage`,
+    `${side}Damages`,
     `${side}TotalDamage`,
+    `${side}TotalDamages`,
     `${side}DamageDealt`,
     `${side}Side.damage`,
     `${side}Side.totalDamage`,
@@ -433,18 +545,26 @@ const battleSideDamage = (
     `damages.${side}`,
     `damages.${side}Damage`,
     `currentRound.${side}Damage`,
+    `currentRound.${side}Damages`,
     `currentRound.${side}TotalDamage`,
+    `currentRound.${side}TotalDamages`,
     `currentRound.${side}.damage`,
     `currentRound.${side}.totalDamage`,
     `currentRound.${side}.damageDealt`,
     `round.${side}Damage`,
+    `round.${side}Damages`,
     `round.${side}.damage`,
+    `round.${side}.damages`,
     `round.${side}.totalDamage`,
     `live.${side}Damage`,
+    `live.${side}Damages`,
     `live.${side}.damage`,
+    `live.${side}.damages`,
     `live.${side}.totalDamage`,
     `battleData.${side}Damage`,
+    `battleData.${side}Damages`,
     `battleData.${side}.damage`,
+    `battleData.${side}.damages`,
     `${capitalized.toLowerCase()}Data.damage`,
     `${capitalized.toLowerCase()}Data.totalDamage`,
     `${side}DamageTotal`,
@@ -747,15 +867,16 @@ export class GatewayProvider
     value: unknown,
     fallbackId = ""
   ): Battle {
-    const raw = object(
-      unwrapEntity(value)
-    );
+    const normalized = battleEnvelope(value);
+    const raw = normalized.raw;
 
     const battleId =
+      id(normalized.battle) ||
       id(raw) ||
       fallbackId;
 
     const currentRound =
+      normalized.round ??
       raw.currentRound ??
       raw.round ??
       raw.battleRound ??
@@ -822,25 +943,20 @@ export class GatewayProvider
     battleId: string,
     value: unknown
   ): BattleLiveData {
-    const raw = object(
-      unwrapEntity(value)
-    );
-
-    const round =
-      raw.round ??
-      raw.currentRound ??
-      raw.battleRound ??
-      {};
-
-    const roundObject = object(round);
+    const normalized = battleEnvelope(value);
+    const raw = normalized.raw;
+    const roundObject = normalized.round;
 
     return {
       battleId:
         referenceId(
-          raw.battleId
+          normalized.battle.battleId
         ) ??
         referenceId(
-          raw.battle
+          normalized.battle.id
+        ) ??
+        referenceId(
+          raw.battleId
         ) ??
         battleId,
 
@@ -851,7 +967,7 @@ export class GatewayProvider
         referenceId(
           raw.roundId
         ) ??
-        referenceId(round),
+        referenceId(roundObject),
 
       attackerDamage:
         battleSideDamage(
