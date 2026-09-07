@@ -18,25 +18,41 @@ const clientId = requireEnv("DISCORD_CLIENT_ID");
 const guildId = process.env.DISCORD_GUILD_ID;
 
 async function loadCommands(): Promise<unknown[]> {
-  const commands: unknown[] = [];
+  const commands = new Map<string, unknown>();
   const commandsDir = join(process.cwd(), "dist", "bot", "commands");
 
   const commandFiles = (await readdir(commandsDir))
-    .filter((file) => file.endsWith(".js") && !file.endsWith(".map"));
+    .filter((file) => file.endsWith(".js") && !file.endsWith(".map"))
+    .sort();
 
   for (const file of commandFiles) {
     const filePath = join(commandsDir, file);
     const command = await import(pathToFileURL(filePath).href);
 
-    if (command.data && typeof command.data.toJSON === "function") {
-      commands.push(command.data.toJSON());
-      console.log(`Loaded command: /${command.data.name}`);
-    } else {
+    if (!command.data || typeof command.data.toJSON !== "function") {
       console.warn(`Skipping ${file}: missing export 'data'`);
+      continue;
     }
+
+    const name = command.data.name;
+
+    if (!name) {
+      console.warn(`Skipping ${file}: command has no name`);
+      continue;
+    }
+
+    if (commands.has(name)) {
+      console.warn(
+        `Skipping duplicate command /${name} from ${file}; an earlier command with the same name was already loaded.`
+      );
+      continue;
+    }
+
+    commands.set(name, command.data.toJSON());
+    console.log(`Loaded command: /${name}`);
   }
 
-  return commands;
+  return [...commands.values()];
 }
 
 async function main(): Promise<void> {
@@ -51,7 +67,7 @@ async function main(): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);
 
   console.log(
-    `Registering ${commands.length} global slash commands...`
+    `Registering ${commands.length} unique global slash commands...`
   );
 
   const globalResult = await rest.put(
@@ -67,7 +83,7 @@ async function main(): Promise<void> {
 
   if (guildId) {
     console.log(
-      `Registering ${commands.length} commands in development guild ${guildId}...`
+      `Registering ${commands.length} unique commands in development guild ${guildId}...`
     );
 
     const guildResult = await rest.put(
