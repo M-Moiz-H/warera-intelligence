@@ -706,3 +706,136 @@ export async function storedPakistanResistance() {
       )
   };
 }
+
+export interface ResistanceIntelRegion {
+  id: string;
+  name: string;
+  resistance: number;
+  ownerCountryId?: string | null;
+  opportunity: "CRITICAL" | "HIGH" | "ELEVATED" | "LOW";
+}
+
+function resistanceOpportunity(value: number): ResistanceIntelRegion["opportunity"] {
+  if (value >= 80) return "CRITICAL";
+  if (value >= 60) return "HIGH";
+  if (value >= 30) return "ELEVATED";
+  return "LOW";
+}
+
+export async function resistanceIntel(
+  provider: WarEraProvider,
+  countryQuery = "Pakistan"
+) {
+  const country = await liveCountry(provider, countryQuery);
+  if (!country) return null;
+
+  const allRegions = await provider.regions();
+  const coreRegions = allRegions.filter(
+    (region) => region.countryId === country.id && region.isCore
+  );
+  const occupied = coreRegions.filter(
+    (region) => Boolean(region.ownerCountryId) && region.ownerCountryId !== country.id
+  );
+
+  const regions: ResistanceIntelRegion[] = occupied
+    .map((region) => {
+      const resistance = Math.max(0, Math.min(100, Number(region.resistance ?? 0)));
+      return {
+        id: region.id,
+        name: region.name,
+        resistance,
+        ownerCountryId: region.ownerCountryId,
+        opportunity: resistanceOpportunity(resistance)
+      };
+    })
+    .sort((a, b) => b.resistance - a.resistance);
+
+  const averageResistance = regions.length
+    ? regions.reduce((sum, region) => sum + region.resistance, 0) / regions.length
+    : 0;
+
+  return {
+    country,
+    totalCoreRegions: coreRegions.length,
+    occupiedCount: occupied.length,
+    controlledCount: Math.max(0, coreRegions.length - occupied.length),
+    averageResistance,
+    regions,
+    opportunities: regions.filter((region) => region.resistance >= 60),
+    criticalCount: regions.filter((region) => region.opportunity === "CRITICAL").length
+  };
+}
+
+export async function globalSituation(provider: WarEraProvider) {
+  const [countries, battles] = await Promise.all([
+    provider.countries(),
+    enrichedBattles(provider, { limit: 50 })
+  ]);
+
+  const usableCountries = countries.filter(isUsableCountry);
+  const countryNames = new Map(usableCountries.map((country) => [country.id, country.name]));
+  const activity = new Map<string, number>();
+
+  for (const battle of battles) {
+    for (const countryId of [battle.attackerCountryId, battle.defenderCountryId]) {
+      if (!countryId) continue;
+      activity.set(countryId, (activity.get(countryId) ?? 0) + 1);
+    }
+  }
+
+  const rankings = [...usableCountries]
+    .map((country) => ({
+      country,
+      score: powerScore({
+        military: country.militaryRank ? Math.max(0, 100 - country.militaryRank) : 0,
+        economy: country.economyRank ? Math.max(0, 100 - country.economyRank) : 0,
+        population: country.population ? Math.log10(Math.max(1, country.population)) * 10 : 0
+      })
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const activeCountries = [...activity.entries()]
+    .map(([countryId, battleCount]) => ({
+      countryId,
+      name: countryNames.get(countryId) ?? countryId,
+      battleCount
+    }))
+    .sort((a, b) => b.battleCount - a.battleCount || a.name.localeCompare(b.name));
+
+  const totalDamage = battles.reduce(
+    (sum, battle) => sum + Number(battle.attackerDamage ?? 0) + Number(battle.defenderDamage ?? 0),
+    0
+  );
+
+  return {
+    countries: usableCountries,
+    battles,
+    rankings,
+    activeCountries,
+    totalDamage
+  };
+}
+
+export async function militaryIntel(provider: WarEraProvider) {
+  const situation = await globalSituation(provider);
+  const byMilitaryRank = [...situation.countries]
+    .filter((country) => country.militaryRank !== undefined && country.militaryRank !== null)
+    .sort((a, b) => Number(a.militaryRank) - Number(b.militaryRank));
+
+  const countryNames = new Map(situation.countries.map((country) => [country.id, country.name]));
+  const conflicts = situation.battles.map((battle) => ({
+    id: battle.id,
+    attacker: battle.attackerCountryId ? countryNames.get(battle.attackerCountryId) ?? battle.attackerCountryId : "Unknown",
+    defender: battle.defenderCountryId ? countryNames.get(battle.defenderCountryId) ?? battle.defenderCountryId : "Unknown",
+    attackerDamage: battle.attackerDamage,
+    defenderDamage: battle.defenderDamage,
+    status: battle.status ?? "Unknown"
+  }));
+
+  return {
+    ...situation,
+    byMilitaryRank,
+    conflicts
+  };
+}
+
