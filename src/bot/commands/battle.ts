@@ -26,14 +26,6 @@ export const data =
         )
     );
 
-function shortId(
-  value: string
-) {
-  return value.length > 18
-    ? `${value.slice(0, 18)}…`
-    : value;
-}
-
 function battleColor(
   status: string | null | undefined,
   totalDamage: number
@@ -202,9 +194,9 @@ Share: **${analysis.defenderShare.toFixed(
           : "⚪ Summary";
 
     response.addFields({
-      name: `⚔️ ${shortId(
-        text(battle.id)
-      )}`,
+      // Keep the complete battle ID visible so users can copy it
+      // directly into /battle id:<battle ID> for the detailed view.
+      name: `⚔️ ${text(battle.id)}`,
 
       value: [
         `📌 Status: **${text(
