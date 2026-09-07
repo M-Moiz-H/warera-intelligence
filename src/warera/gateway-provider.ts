@@ -328,69 +328,85 @@ const referenceId = (
 
   const raw = object(value);
 
-  const result = defined(
+  const direct = defined(
     raw.id,
     raw._id,
     raw.countryId,
     raw.regionId,
     raw.battleId,
-    raw.value
+    raw.value,
+    raw.entityId
   );
 
-  return result === undefined
-    ? null
-    : String(result);
+  if (direct !== undefined && direct !== null) {
+    return String(direct);
+  }
+
+  for (const nestedKey of [
+    "country",
+    "region",
+    "battle",
+    "entity",
+    "owner",
+    "data"
+  ]) {
+    const nested = raw[nestedKey];
+
+    if (nested !== value) {
+      const nestedId = referenceId(nested);
+
+      if (nestedId) {
+        return nestedId;
+      }
+    }
+  }
+
+  return null;
 };
 
 const battleSideCountryId = (
   raw: JsonRecord,
   side: "attacker" | "defender"
 ): string | null => {
-  const capitalized =
+  const aliases =
     side === "attacker"
-      ? "Attacker"
-      : "Defender";
+      ? ["attacker", "attacking", "attack"]
+      : ["defender", "defending", "defence", "defense"];
 
-  return (
-    referenceId(
-      raw[`${side}CountryId`]
-    ) ??
-    referenceId(
-      raw[`${side}Country`]
-    ) ??
-    referenceId(
-      raw[side]?.countryId
-    ) ??
-    referenceId(
-      raw[side]?.country
-    ) ??
-    referenceId(
-      raw[`${side}Side`]?.countryId
-    ) ??
-    referenceId(
-      raw[`${side}Side`]?.country
-    ) ??
-    referenceId(
-      raw.currentRound?.[
-        `${side}CountryId`
-      ]
-    ) ??
-    referenceId(
-      raw.currentRound?.[
-        `${side}Country`
-      ]
-    ) ??
-    referenceId(
-      raw.currentRound?.[side]?.countryId
-    ) ??
-    referenceId(
-      raw.currentRound?.[side]?.country
-    ) ??
-    referenceId(
-      raw[`${capitalized.toLowerCase()}Data`]
-        ?.countryId
-    )
-  );
+  for (const alias of aliases) {
+    const capitalized =
+      alias.charAt(0).toUpperCase() +
+      alias.slice(1);
+
+    const candidates = [
+      raw[`${alias}CountryId`],
+      raw[`${alias}Country`],
+      raw[`${alias}Side`],
+      raw[alias],
+      raw[`${capitalized}CountryId`],
+      raw[`${capitalized}Country`],
+      raw.currentRound?.[`${alias}CountryId`],
+      raw.currentRound?.[`${alias}Country`],
+      raw.currentRound?.[`${alias}Side`],
+      raw.currentRound?.[alias],
+      raw.round?.[`${alias}CountryId`],
+      raw.round?.[`${alias}Country`],
+      raw.round?.[alias],
+      raw.battleData?.[`${alias}CountryId`],
+      raw.battleData?.[`${alias}Country`],
+      raw.battleData?.[alias]
+    ];
+
+    for (const candidate of candidates) {
+      const value = referenceId(candidate);
+
+      if (value) {
+        return value;
+      }
+    }
+  }
+
+  return null;
 };
 
 const battleSideDamage = (
@@ -430,7 +446,24 @@ const battleSideDamage = (
     `battleData.${side}Damage`,
     `battleData.${side}.damage`,
     `${capitalized.toLowerCase()}Data.damage`,
-    `${capitalized.toLowerCase()}Data.totalDamage`
+    `${capitalized.toLowerCase()}Data.totalDamage`,
+    `${side}DamageTotal`,
+    `${side}DamageSum`,
+    `${side}Total`,
+    `${side}Points`,
+    `${side}.total`,
+    `${side}.damageTotal`,
+    `${side}.damageSum`,
+    `currentRound.${side}DamageTotal`,
+    `currentRound.${side}DamageSum`,
+    `currentRound.${side}.total`,
+    `currentRound.${side}.damageTotal`,
+    `currentRound.${side}.damageSum`,
+    `currentRound.damage.${side}`,
+    `currentRound.damages.${side}`,
+    `battleData.${side}DamageTotal`,
+    `battleData.${side}DamageSum`,
+    `battleData.${side}.total`
   ]);
 };
 
@@ -443,15 +476,29 @@ const battleStatus = (
     "battleStatus",
     "battleState",
     "phase",
+    "battlePhase",
     "currentRound.status",
     "currentRound.state",
     "round.status",
     "live.status"
   ]);
 
-  return typeof value === "string" &&
+  if (
+    typeof value === "string" &&
     value.trim()
-    ? value
+  ) {
+    return value;
+  }
+
+  const active = firstPath(raw, [
+    "isActive",
+    "active",
+    "currentRound.isActive",
+    "currentRound.active"
+  ]);
+
+  return typeof active === "boolean"
+    ? active ? "ACTIVE" : "INACTIVE"
     : null;
 };
 
@@ -465,9 +512,39 @@ const battleRoundNumber = (
     "currentRound.number",
     "round.roundNumber",
     "round.number",
+    "currentRoundNumber.value",
+    "currentRound.round",
     "battleRound.roundNumber",
     "battleRound.number"
   ]);
+
+const battleDebug = (
+  label: string,
+  value: unknown
+) => {
+  if (process.env.NODE_ENV !== "production") {
+    return;
+  }
+
+  const raw = object(value);
+
+  console.log(
+    `⚔️ ${label} shape`,
+    {
+      keys: Object.keys(raw).slice(0, 30),
+      id: raw.id ?? raw._id ?? raw.battleId,
+      status: raw.status ?? raw.state ?? raw.battleStatus,
+      attackerCountryId:
+        raw.attackerCountryId ??
+        raw.attackingCountryId,
+      defenderCountryId:
+        raw.defenderCountryId ??
+        raw.defendingCountryId,
+      currentRound:
+        raw.currentRound ?? raw.round ?? raw.battleRound
+    }
+  );
+};
 
 export class GatewayProvider
   implements WarEraProvider
@@ -1002,11 +1079,21 @@ export class GatewayProvider
         { battleId }
       );
 
+      battleDebug("battle.getById", response);
+
       return this.normalizeBattle(
         response,
         battleId
       );
-    } catch {
+    } catch (error) {
+      console.warn(
+        "⚠️ battle.getById failed",
+        battleId,
+        error instanceof Error
+          ? error.message
+          : String(error)
+      );
+
       return null;
     }
   }
@@ -1036,11 +1123,24 @@ export class GatewayProvider
           input
         );
 
+        battleDebug(
+          "battle.getLiveBattleData",
+          response
+        );
+
         return this.normalizeLiveBattle(
           battleId,
           response
         );
-      } catch {
+      } catch (error) {
+        console.warn(
+          "⚠️ battle.getLiveBattleData failed",
+          input,
+          error instanceof Error
+            ? error.message
+            : String(error)
+        );
+
         // Try the next supported input shape.
       }
     }
