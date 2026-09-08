@@ -1,15 +1,9 @@
 import { REST, Routes } from "discord.js";
-import { readdir } from "node:fs/promises";
-import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { modules } from "../bot/command-loader.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
-
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
 
@@ -17,34 +11,23 @@ const token = requireEnv("DISCORD_TOKEN");
 const clientId = requireEnv("DISCORD_CLIENT_ID");
 const guildId = process.env.DISCORD_GUILD_ID;
 
-async function loadCommands(): Promise<unknown[]> {
+function loadCommands() {
   const commands = new Map<string, unknown>();
-  const commandsDir = join(process.cwd(), "dist", "bot", "commands");
 
-  const commandFiles = (await readdir(commandsDir))
-    .filter((file) => file.endsWith(".js") && !file.endsWith(".map"))
-    .sort();
-
-  for (const file of commandFiles) {
-    const filePath = join(commandsDir, file);
-    const command = await import(pathToFileURL(filePath).href);
-
-    if (!command.data || typeof command.data.toJSON !== "function") {
-      console.warn(`Skipping ${file}: missing export 'data'`);
+  for (const command of modules) {
+    if (!command?.data || typeof command.data.toJSON !== "function") {
+      console.warn("Skipping command module: missing export 'data'");
       continue;
     }
 
     const name = command.data.name;
-
     if (!name) {
-      console.warn(`Skipping ${file}: command has no name`);
+      console.warn("Skipping command module: command has no name");
       continue;
     }
 
     if (commands.has(name)) {
-      console.warn(
-        `Skipping duplicate command /${name} from ${file}; an earlier command with the same name was already loaded.`
-      );
+      console.warn(`Skipping duplicate command /${name}`);
       continue;
     }
 
@@ -56,45 +39,33 @@ async function loadCommands(): Promise<unknown[]> {
 }
 
 async function main(): Promise<void> {
-  const commands = await loadCommands();
+  const commands = loadCommands();
 
-  if (commands.length === 0) {
-    throw new Error(
-      "No slash commands were found in dist/bot/commands"
-    );
+  if (!commands.length) {
+    throw new Error("No slash commands were loaded.");
   }
 
   const rest = new REST({ version: "10" }).setToken(token);
 
-  console.log(
-    `Registering ${commands.length} unique global slash commands...`
-  );
-
-  const globalResult = await rest.put(
-    Routes.applicationCommands(clientId),
-    { body: commands }
-  );
-
-  console.log(
-    `Successfully registered ${
-      Array.isArray(globalResult) ? globalResult.length : commands.length
-    } global slash commands.`
-  );
+  console.log(`Registering ${commands.length} unique slash commands...`);
 
   if (guildId) {
-    console.log(
-      `Registering ${commands.length} unique commands in development guild ${guildId}...`
-    );
-
-    const guildResult = await rest.put(
+    const result = await rest.put(
       Routes.applicationGuildCommands(clientId, guildId),
       { body: commands }
     );
 
     console.log(
-      `Successfully registered ${
-        Array.isArray(guildResult) ? guildResult.length : commands.length
-      } guild slash commands.`
+      `Successfully registered ${Array.isArray(result) ? result.length : commands.length} guild slash commands.`
+    );
+  } else {
+    const result = await rest.put(
+      Routes.applicationCommands(clientId),
+      { body: commands }
+    );
+
+    console.log(
+      `Successfully registered ${Array.isArray(result) ? result.length : commands.length} global slash commands.`
     );
   }
 }
