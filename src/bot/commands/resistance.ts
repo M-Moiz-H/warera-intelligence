@@ -7,21 +7,25 @@ export const data = new SlashCommandBuilder()
   .setName("resistance")
   .setDescription("Resistance, occupation and liberation intelligence")
   .addStringOption((option) =>
-    option
-      .setName("country")
-      .setDescription("Country to analyse (defaults to Pakistan)")
-      .setRequired(false)
+    option.setName("country").setDescription("Country to analyse (defaults to Pakistan)").setRequired(false)
   );
 
 export async function execute(i: any, ctx: any) {
   await i.deferReply();
-
   const countryQuery = i.options.getString("country") ?? "Pakistan";
-  const intel = await resistanceIntel(ctx.provider, countryQuery);
 
-  if (!intel) {
-    return i.editReply(`⚠️ Country not found: **${countryQuery}**`);
-  }
+  const [intel, countries] = await Promise.all([
+    resistanceIntel(ctx.provider, countryQuery),
+    ctx.provider.countries().catch(() => [])
+  ]);
+
+  if (!intel) return i.editReply(`⚠️ Country not found: **${countryQuery}**`);
+
+  const countryNames = new Map(
+    countries
+      .filter((country: any) => country?.id && country?.name)
+      .map((country: any) => [String(country.id), String(country.name)])
+  );
 
   const e = embed(
     `🔥 ${intel.country.name.toUpperCase()} RESISTANCE INTELLIGENCE`,
@@ -36,19 +40,31 @@ export async function execute(i: any, ctx: any) {
   );
 
   for (const region of intel.regions.slice(0, 10)) {
-    const owner = region.ownerCountryId ? `\nOccupier: \`${region.ownerCountryId}\`` : "";
+    const ownerName = region.ownerCountryId
+      ? countryNames.get(String(region.ownerCountryId))
+      : null;
+
+    const owner = region.ownerCountryId
+      ? `\n🏳️ Occupier: **${ownerName ?? region.ownerCountryId}**`
+      : "";
+
+    const icon =
+      region.opportunity === "CRITICAL" ? "🚨" :
+      region.opportunity === "HIGH" ? "🔴" :
+      region.opportunity === "ELEVATED" ? "🟡" : "🟢";
+
     e.addFields({
-      name: `${region.opportunity === "CRITICAL" ? "🚨" : region.opportunity === "HIGH" ? "🔴" : region.opportunity === "ELEVATED" ? "🟡" : "🟢"} ${region.name}`,
+      name: `${icon} ${region.name}`,
       value: `${progressBar(region.resistance)} **${Number(region.resistance).toFixed(1)}%** — ${resistanceStatus(region.resistance)}${owner}\nLiberation opportunity: **${region.opportunity}**`,
       inline: false
     });
   }
 
-  if (intel.regions.length > 10) {
-    e.setFooter({ text: `Showing top 10 of ${intel.regions.length} occupied regions • Live provider analysis` });
-  } else {
-    e.setFooter({ text: "Live provider analysis" });
-  }
+  e.setFooter({
+    text: intel.regions.length > 10
+      ? `Showing top 10 of ${intel.regions.length} occupied regions • Live provider analysis`
+      : "Live provider analysis"
+  });
 
   return i.editReply({ embeds: [e] });
 }
