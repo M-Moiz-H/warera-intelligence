@@ -1,46 +1,125 @@
 import { SlashCommandBuilder } from "discord.js";
-import { globalSituation } from "../../services/intel-service.js";
+import { globalIntel } from "../../services/intel-service.js";
 import { embed, n } from "./_utils.js";
 
 export const data = new SlashCommandBuilder()
-  .setName("global")
-  .setDescription("Global WarEra situation and activity overview");
-
-export async function execute(i: any, ctx: any) {
-  await i.deferReply();
-  const x = await globalSituation(ctx.provider);
-
-  const topPower = x.rankings
-    .slice(0, 10)
-    .map((row, index) => `**${index + 1}. ${row.country.name}** — ${n(row.score)}`)
-    .join("\n") || "No power-ranking data available.";
-
-  const active = x.activeCountries
-    .slice(0, 10)
-    .map((row, index) => `**${index + 1}. ${row.name}** — ${n(row.battleCount)} battle${row.battleCount === 1 ? "" : "s"}`)
-    .join("\n") || "No country activity could be mapped from the active battles.";
-
-  const conflictSummary = x.battles
-    .slice(0, 5)
-    .map((battle) => {
-      const a = battle.attackerCountryId ?? "Unknown";
-      const d = battle.defenderCountryId ?? "Unknown";
-      return `• \`${battle.id}\` — ${a} vs ${d}`;
-    })
-    .join("\n") || "No active battles returned by the provider.";
-
-  const e = embed(
-    "🌐 GLOBAL INTELLIGENCE",
-    "Live global overview built from currently available WarEra countries and battle data."
-  ).addFields(
-    { name: "🌍 Countries Analysed", value: n(x.countries.length), inline: true },
-    { name: "⚔️ Active Battles", value: n(x.battles.length), inline: true },
-    { name: "💥 Observed Damage", value: n(x.totalDamage), inline: true },
-    { name: "🏆 Power Rankings", value: topPower, inline: false },
-    { name: "🔥 Most Active Countries", value: active, inline: false },
-    { name: "⚔️ Conflict Snapshot", value: conflictSummary, inline: false }
+  .setName("military")
+  .setDescription("Military ranking and conflict intelligence")
+  .addStringOption((option) =>
+    option
+      .setName("country")
+      .setDescription("Optional country to inspect")
+      .setRequired(false)
   );
 
-  e.setFooter({ text: "Activity is based on battles returned by the provider during this command" });
-  return i.editReply({ embeds: [e] });
+export async function execute(interaction: any, ctx: any) {
+  await interaction.deferReply();
+
+  const intel = await globalIntel(ctx.provider);
+  const query = interaction.options.getString("country")?.trim();
+
+  const countries = [...intel.countries]
+    .filter((country) => country.militaryRank != null)
+    .sort(
+      (a, b) =>
+        Number(a.militaryRank ?? 999999) -
+        Number(b.militaryRank ?? 999999)
+    );
+
+  if (query) {
+    const country = intel.countries.find(
+      (item) =>
+        item.name.toLowerCase() === query.toLowerCase() ||
+        item.code?.toLowerCase() === query.toLowerCase()
+    );
+
+    if (!country) {
+      return interaction.editReply(`⚠️ No country named **${query}** was found.`);
+    }
+
+    const relatedBattles = intel.battles.filter(
+      (battle: any) =>
+        battle.attackerCountryId === country.id ||
+        battle.defenderCountryId === country.id
+    );
+
+    return interaction.editReply({
+      embeds: [
+        embed(
+          `🪖 ${country.name.toUpperCase()} MILITARY INTELLIGENCE`,
+          "Military ranking and currently observed conflict activity."
+        )
+          .setColor(0x5865f2)
+          .addFields(
+            {
+              name: "🏅 Military Rank",
+              value: `**${n(country.militaryRank)}**`,
+              inline: true
+            },
+            {
+              name: "⚔️ Related Battles",
+              value: `**${relatedBattles.length}**`,
+              inline: true
+            },
+            {
+              name: "🌍 Country Code",
+              value: `**${country.code ?? "Unavailable"}**`,
+              inline: true
+            },
+            {
+              name: "🔥 Conflict Activity",
+              value:
+                relatedBattles
+                  .slice(0, 5)
+                  .map(
+                    (battle: any) =>
+                      `⚔️ \`${battle.id}\` — ${battle.status ?? "Unknown"}`
+                  )
+                  .join("\n") ||
+                "No related battles were returned by the provider.",
+              inline: false
+            }
+          )
+      ]
+    });
+  }
+
+  return interaction.editReply({
+    embeds: [
+      embed(
+        "🪖 GLOBAL MILITARY INTELLIGENCE",
+        "Military rankings and conflict activity based on currently available WarEra data."
+      )
+        .setColor(0x5865f2)
+        .addFields(
+          {
+            name: "🏆 Top Military Rankings",
+            value:
+              countries
+                .slice(0, 10)
+                .map(
+                  (country, index) =>
+                    `**${index + 1}. ${country.name}** — Military rank **${n(country.militaryRank)}**`
+                )
+                .join("\n") || "No military ranking data available.",
+            inline: false
+          },
+          {
+            name: "⚔️ Battles Observed",
+            value: `**${intel.battles.length}**`,
+            inline: true
+          },
+          {
+            name: "🌍 Countries Ranked",
+            value: `**${countries.length}**`,
+            inline: true
+          },
+          {
+            name: "💡 Country Lookup",
+            value: "Use `/military country:<country name>` for country-specific military intelligence.",
+            inline: false
+          }
+        )
+    ]
+  });
 }
