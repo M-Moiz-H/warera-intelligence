@@ -9,7 +9,7 @@ function requireEnv(name: string): string {
 
 const token = requireEnv("DISCORD_TOKEN");
 const clientId = requireEnv("DISCORD_CLIENT_ID");
-const guildId = process.env.DISCORD_GUILD_ID;
+const guildId = process.env.DISCORD_GUILD_ID?.trim();
 
 function loadCommands() {
   const commands = new Map<string, unknown>();
@@ -38,6 +38,19 @@ function loadCommands() {
   return [...commands.values()];
 }
 
+async function registerGlobalCommands(rest: REST, commands: unknown[]): Promise<void> {
+  console.log(`Registering ${commands.length} unique global slash commands...`);
+
+  const result = await rest.put(
+    Routes.applicationCommands(clientId),
+    { body: commands }
+  );
+
+  console.log(
+    `Successfully registered ${Array.isArray(result) ? result.length : commands.length} global slash commands.`
+  );
+}
+
 async function main(): Promise<void> {
   const commands = loadCommands();
 
@@ -47,27 +60,27 @@ async function main(): Promise<void> {
 
   const rest = new REST({ version: "10" }).setToken(token);
 
-  console.log(`Registering ${commands.length} unique slash commands...`);
-
   if (guildId) {
-    const result = await rest.put(
-      Routes.applicationGuildCommands(clientId, guildId),
-      { body: commands }
-    );
+    try {
+      console.log(`Registering ${commands.length} unique guild slash commands to ${guildId}...`);
 
-    console.log(
-      `Successfully registered ${Array.isArray(result) ? result.length : commands.length} guild slash commands.`
-    );
-  } else {
-    const result = await rest.put(
-      Routes.applicationCommands(clientId),
-      { body: commands }
-    );
+      const result = await rest.put(
+        Routes.applicationGuildCommands(clientId, guildId),
+        { body: commands }
+      );
 
-    console.log(
-      `Successfully registered ${Array.isArray(result) ? result.length : commands.length} global slash commands.`
-    );
+      console.log(
+        `Successfully registered ${Array.isArray(result) ? result.length : commands.length} guild slash commands.`
+      );
+
+      return;
+    } catch (error: any) {
+      console.error(`Guild command registration failed: ${error?.message ?? error}`);
+      console.warn("Falling back to global command registration so the application can continue.");
+    }
   }
+
+  await registerGlobalCommands(rest, commands);
 }
 
 main().catch((error: unknown) => {
