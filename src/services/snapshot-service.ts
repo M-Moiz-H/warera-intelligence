@@ -15,7 +15,9 @@ type SnapshotResult = {
 };
 
 function asRows(raw: unknown): any[] {
-  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw)) {
+    return raw;
+  }
 
   if (raw && typeof raw === "object") {
     const value = raw as any;
@@ -31,21 +33,38 @@ function asRows(raw: unknown): any[] {
         return candidate;
       }
 
-      if (candidate && typeof candidate === "object") {
+      if (
+        candidate &&
+        typeof candidate === "object"
+      ) {
         return Object.entries(candidate).map(
           ([key, row]) =>
-            row && typeof row === "object"
-              ? { code: key, ...(row as any) }
-              : { code: key, price: row }
+            row &&
+            typeof row === "object"
+              ? {
+                  code: key,
+                  ...(row as any)
+                }
+              : {
+                  code: key,
+                  price: row
+                }
         );
       }
     }
 
     return Object.entries(value).map(
       ([key, row]) =>
-        row && typeof row === "object"
-          ? { code: key, ...(row as any) }
-          : { code: key, price: row }
+        row &&
+        typeof row === "object"
+          ? {
+              code: key,
+              ...(row as any)
+            }
+          : {
+              code: key,
+              price: row
+            }
     );
   }
 
@@ -63,7 +82,9 @@ function marketItemName(row: any): string {
   );
 }
 
-function marketPrice(row: any): number | null {
+function marketPrice(
+  row: any
+): number | null {
   const value =
     row.price ??
     row.currentPrice ??
@@ -78,7 +99,9 @@ function marketPrice(row: any): number | null {
     : null;
 }
 
-function formatError(error: unknown): string {
+function formatError(
+  error: unknown
+): string {
   if (error instanceof Error) {
     return error.message;
   }
@@ -114,12 +137,16 @@ async function saveCountrySnapshots(
     )
     .map((country) => ({
       country_id: String(country.id),
+
       population:
         country.population ?? null,
+
       military_rank:
         country.militaryRank ?? null,
+
       economy_rank:
         country.economyRank ?? null,
+
       captured_at: capturedAt
     }));
 
@@ -151,11 +178,18 @@ async function saveResistanceSnapshots(
     )
     .map((region) => ({
       region_id: String(region.id),
-      resistance: Number(region.resistance),
+
+      resistance: Number(
+        region.resistance
+      ),
+
       owner_country_id:
         region.ownerCountryId
-          ? String(region.ownerCountryId)
+          ? String(
+              region.ownerCountryId
+            )
           : null,
+
       captured_at: capturedAt
     }));
 
@@ -174,47 +208,73 @@ async function saveResistanceSnapshots(
   return rows.length;
 }
 
+/**
+ * Stores the current battle state and
+ * creates a historical damage snapshot.
+ *
+ * war_id is deliberately set to null because
+ * the WarEra provider can return war IDs whose
+ * parent records do not currently exist in the
+ * local wars table.
+ *
+ * The original provider war ID is preserved
+ * inside raw.providerWarId.
+ */
 async function saveBattlesAndSnapshots(
   battles: Battle[],
   capturedAt: string
 ): Promise<number> {
   const battleRows = battles
-    .filter(
-      (battle) => battle.id
-    )
+    .filter((battle) => battle.id)
     .map((battle) => ({
       id: String(battle.id),
-      war_id:
-        battle.warId
-          ? String(battle.warId)
-          : null,
-      region_id:
-        battle.regionId
-          ? String(battle.regionId)
-          : null,
+
+      // Prevent invalid foreign-key references.
+      war_id: null,
+
+      region_id: battle.regionId
+        ? String(battle.regionId)
+        : null,
+
       attacker_country_id:
         battle.attackerCountryId
           ? String(
               battle.attackerCountryId
             )
           : null,
+
       defender_country_id:
         battle.defenderCountryId
           ? String(
               battle.defenderCountryId
             )
           : null,
-      status: battle.status ?? null,
+
+      status:
+        battle.status ?? null,
+
       attacker_damage:
         battle.attackerDamage ?? null,
+
       defender_damage:
         battle.defenderDamage ?? null,
+
       ends_at: battle.endsAt
         ? new Date(
             battle.endsAt
           ).toISOString()
         : null,
-      raw: battle.raw ?? {},
+
+      // Keep all original provider data.
+      raw: {
+        ...(battle.raw ?? {}),
+
+        providerWarId:
+          battle.warId
+            ? String(battle.warId)
+            : null
+      },
+
       updated_at: capturedAt
     }));
 
@@ -222,6 +282,9 @@ async function saveBattlesAndSnapshots(
     return 0;
   }
 
+  /**
+   * First save/update the current battle.
+   */
   const { error: battleError } =
     await supabase
       .from("battles")
@@ -233,13 +296,19 @@ async function saveBattlesAndSnapshots(
     throw battleError;
   }
 
+  /**
+   * Then save the historical damage state.
+   */
   const snapshotRows = battleRows.map(
     (battle) => ({
       battle_id: battle.id,
+
       attacker_damage:
         battle.attacker_damage,
+
       defender_damage:
         battle.defender_damage,
+
       captured_at: capturedAt
     })
   );
@@ -263,6 +332,7 @@ async function saveMarketSnapshots(
   const rows = asRows(raw)
     .map((row) => ({
       itemName: marketItemName(row),
+
       itemId: String(
         row.id ??
           row.itemId ??
@@ -270,7 +340,9 @@ async function saveMarketSnapshots(
           row.code ??
           marketItemName(row)
       ),
+
       price: marketPrice(row),
+
       currency:
         row.currency ??
         row.currencyCode ??
@@ -282,10 +354,16 @@ async function saveMarketSnapshots(
     )
     .map((row) => ({
       item_id: row.itemId,
-      item_name: row.itemName,
+
+      item_name:
+        row.itemName,
+
       country_id: null,
+
       price: row.price,
+
       currency: row.currency,
+
       captured_at: capturedAt
     }));
 
@@ -318,6 +396,9 @@ export async function captureSnapshots(
   const capturedAt =
     new Date().toISOString();
 
+  /*
+   * Countries
+   */
   try {
     const countries =
       await provider.countries();
@@ -332,7 +413,8 @@ export async function captureSnapshots(
       `📸 Saved ${result.countries} country snapshots.`
     );
   } catch (error) {
-    const message = formatError(error);
+    const message =
+      formatError(error);
 
     console.error(
       "❌ Country snapshot failed:",
@@ -344,6 +426,9 @@ export async function captureSnapshots(
     );
   }
 
+  /*
+   * Resistance / regions
+   */
   try {
     const regions =
       await provider.regions();
@@ -358,7 +443,8 @@ export async function captureSnapshots(
       `📸 Saved ${result.resistance} resistance snapshots.`
     );
   } catch (error) {
-    const message = formatError(error);
+    const message =
+      formatError(error);
 
     console.error(
       "❌ Resistance snapshot failed:",
@@ -370,6 +456,9 @@ export async function captureSnapshots(
     );
   }
 
+  /*
+   * Battles
+   */
   try {
     const battles =
       await provider.battles({});
@@ -384,7 +473,8 @@ export async function captureSnapshots(
       `📸 Saved ${result.battles} battle snapshots.`
     );
   } catch (error) {
-    const message = formatError(error);
+    const message =
+      formatError(error);
 
     console.error(
       "❌ Battle snapshot failed:",
@@ -396,6 +486,9 @@ export async function captureSnapshots(
     );
   }
 
+  /*
+   * Market prices
+   */
   try {
     const prices =
       await provider.marketPrices();
@@ -410,7 +503,8 @@ export async function captureSnapshots(
       `📸 Saved ${result.marketPrices} market snapshots.`
     );
   } catch (error) {
-    const message = formatError(error);
+    const message =
+      formatError(error);
 
     console.error(
       "❌ Market snapshot failed:",
