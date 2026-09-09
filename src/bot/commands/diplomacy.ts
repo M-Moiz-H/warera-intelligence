@@ -79,7 +79,7 @@ function eventType(event: any): string | null {
   return null;
 }
 
-function eventDate(event: any): string {
+function eventDateValue(event: any): Date | null {
   for (const value of objects(event)) {
     const raw = firstText(
       value.createdAt,
@@ -94,60 +94,151 @@ function eventDate(event: any): string {
 
     const date = new Date(raw);
 
-    return Number.isNaN(date.getTime())
-      ? raw
-      : `<t:${Math.floor(date.getTime() / 1000)}:R>`;
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
   }
 
-  return "";
+  return null;
 }
 
-function diplomaticLabel(type: string): {
+function compactTime(date: Date | null): string {
+  if (!date) return "";
+
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - date.getTime()) / 1000)
+  );
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+
+  if (days < 7) {
+    return `${days}d ago`;
+  }
+
+  if (days < 30) {
+    return `${Math.floor(days / 7)}w ago`;
+  }
+
+  if (days < 365) {
+    return `${Math.floor(days / 30)}mo ago`;
+  }
+
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+function diplomaticEventInfo(type: string): {
   icon: string;
   label: string;
 } {
-  const normalized = type.replace(/[^a-z]/gi, "").toLowerCase();
+  const normalized = type
+    .replace(/[_-]/g, "")
+    .replace(/\s/g, "")
+    .toLowerCase();
 
-  const labels: Record<string, { icon: string; label: string }> = {
-    wardeclared: {
+  if (
+    normalized.includes("peacemade") ||
+    normalized.includes("peaceagreement") ||
+    normalized.includes("treaty")
+  ) {
+    return {
+      icon: "🕊️",
+      label: "Peace Reached"
+    };
+  }
+
+  if (normalized.includes("wardeclared")) {
+    return {
       icon: "⚔️",
       label: "War Declared"
-    },
-    peacemade: {
-      icon: "🕊️",
-      label: "Peace Agreement Reached"
-    },
-    peaceagreement: {
-      icon: "🕊️",
-      label: "Peace Agreement Reached"
-    },
-    allianceformed: {
+    };
+  }
+
+  if (normalized.includes("allianceformed")) {
+    return {
       icon: "🤝",
       label: "Alliance Formed"
-    },
-    alliancebroken: {
-      icon: "💔",
-      label: "Alliance Broken"
-    }
-  };
+    };
+  }
 
-  return labels[normalized] ?? {
-    icon: "🌐",
+  if (
+    normalized.includes("alliancebroken") ||
+    normalized.includes("allianceended")
+  ) {
+    return {
+      icon: "💔",
+      label: "Alliance Ended"
+    };
+  }
+
+  return {
+    icon: "📜",
     label: type
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]/g, " ")
+      .trim()
   };
 }
 
-function formatEvent(event: any): string {
-  const type = eventType(event) ?? "Diplomatic Activity";
-  const { icon, label } = diplomaticLabel(type);
-  const when = eventDate(event);
+function diagnostic(events: any[], scope: string): void {
+  const sample = events.slice(0, 2).map((event) => {
+    const nestedKeys: Record<string, string[]> = {};
 
-  return `${icon} **${text(label)}**${when ? ` — ${when}` : ""}`;
+    for (const key of [
+      "data",
+      "payload",
+      "meta",
+      "content",
+      "attributes",
+      "details",
+      "eventData"
+    ]) {
+      if (
+        event?.[key] &&
+        typeof event[key] === "object" &&
+        !Array.isArray(event[key])
+      ) {
+        nestedKeys[key] = Object.keys(event[key]).slice(0, 20);
+      }
+    }
+
+    return {
+      keys:
+        event && typeof event === "object"
+          ? Object.keys(event).slice(0, 30)
+          : [],
+      nestedKeys,
+      detectedType: eventType(event)
+    };
+  });
+
+  console.warn(
+    `[WarEra ${scope} event diagnostics]`,
+    JSON.stringify(sample)
+  );
 }
 
 export const data = new SlashCommandBuilder()
   .setName("diplomacy")
-  .setDescription("Wars, peace agreements and alliance intelligence")
+  .setDescription(
+    "Wars, peace agreements and alliance intelligence"
+  )
   .addStringOption((option) =>
     option
       .setName("country")
@@ -184,30 +275,57 @@ export async function execute(i: any, ctx: any) {
     })
     .catch(() => null);
 
-  const events = asList(raw).slice(0, 10);
+  const events = asList(raw).slice(0, 8);
+
+  const unknownEvents = events.filter(
+    (event) => !eventType(event)
+  );
+
+  if (unknownEvents.length) {
+    diagnostic(
+      unknownEvents,
+      country
+        ? `${country.name} diplomacy`
+        : "global diplomacy"
+    );
+  }
 
   const lines =
-    events.map(formatEvent).join("\n") ||
+    events
+      .map((event: any) => {
+        const type =
+          eventType(event) ?? "Diplomatic Activity";
+
+        const info = diplomaticEventInfo(type);
+        const when = compactTime(eventDateValue(event));
+
+        return `${info.icon} **${text(info.label)}**${when ? ` — ${when}` : ""}`;
+      })
+      .join("\n") ||
     "No recent diplomatic events were returned by the provider.";
+
+  const title = country
+    ? `🤝 ${country.name.toUpperCase()} DIPLOMACY`
+    : "🌐 GLOBAL DIPLOMACY INTELLIGENCE";
 
   return i.editReply({
     embeds: [
       embed(
-        country
-          ? `🤝 ${country.name.toUpperCase()} DIPLOMACY`
-          : "🌐 GLOBAL DIPLOMACY INTELLIGENCE",
+        title,
         "Live wars, peace agreements and alliance developments from currently available WarEra provider data."
       )
         .setColor(0x3498db)
         .addFields({
           name: "📡 Recent Diplomatic Activity",
-          value: lines.slice(0, 1024),
+          value: lines,
           inline: false
         })
         .setFooter({
-          text: country
-            ? `Country filter: ${country.name}`
-            : "Live global diplomatic activity"
+          text: unknownEvents.length
+            ? "Some event schema diagnostics were recorded"
+            : country
+              ? `Country filter: ${country.name}`
+              : "Live global diplomatic activity"
         })
     ]
   });
