@@ -80,7 +80,7 @@ function eventType(event: any): string | null {
   return null;
 }
 
-function eventDate(event: any): string {
+function eventDateValue(event: any): Date | null {
   for (const value of objects(event)) {
     const raw = firstText(
       value.createdAt,
@@ -95,59 +95,154 @@ function eventDate(event: any): string {
 
     const date = new Date(raw);
 
-    return Number.isNaN(date.getTime())
-      ? raw
-      : `<t:${Math.floor(date.getTime() / 1000)}:R>`;
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
   }
 
-  return "";
+  return null;
 }
 
-function politicalLabel(type: string): {
+function compactTime(date: Date | null): string {
+  if (!date) return "";
+
+  const seconds = Math.max(
+    0,
+    Math.floor((Date.now() - date.getTime()) / 1000)
+  );
+
+  if (seconds < 60) {
+    return `${seconds}s ago`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+
+  if (hours < 24) {
+    return `${hours}h ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+
+  if (days < 7) {
+    return `${days}d ago`;
+  }
+
+  if (days < 30) {
+    return `${Math.floor(days / 7)}w ago`;
+  }
+
+  if (days < 365) {
+    return `${Math.floor(days / 30)}mo ago`;
+  }
+
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+function politicalEventInfo(type: string): {
   icon: string;
   label: string;
 } {
-  const normalized = type.replace(/[^a-z]/gi, "").toLowerCase();
+  const normalized = type
+    .replace(/[_-]/g, "")
+    .replace(/\s/g, "")
+    .toLowerCase();
 
-  const labels: Record<string, { icon: string; label: string }> = {
-    newpresident: {
+  if (normalized.includes("newpresident")) {
+    return {
       icon: "👤",
-      label: "New President Elected"
-    },
-    systemrevolt: {
-      icon: "🔥",
-      label: "System Revolt Detected"
-    },
-    revolutionstarted: {
-      icon: "🔥",
-      label: "Revolution Started"
-    },
-    revolutionended: {
-      icon: "🕊️",
-      label: "Revolution Ended"
-    },
-    financedrevolt: {
+      label: "President Elected"
+    };
+  }
+
+  if (
+    normalized.includes("financedrevolt") ||
+    normalized.includes("revoltfinanced")
+  ) {
+    return {
       icon: "💰",
       label: "Revolt Financed"
-    },
-    bankruptcy: {
-      icon: "💥",
-      label: "Bankruptcy Declared"
-    }
-  };
+    };
+  }
 
-  return labels[normalized] ?? {
-    icon: "🏛️",
+  if (normalized.includes("revolutionstarted")) {
+    return {
+      icon: "🚩",
+      label: "Revolution Started"
+    };
+  }
+
+  if (normalized.includes("revolutionended")) {
+    return {
+      icon: "🏳️",
+      label: "Revolution Ended"
+    };
+  }
+
+  if (normalized.includes("systemrevolt")) {
+    return {
+      icon: "⚠️",
+      label: "System Revolt"
+    };
+  }
+
+  if (normalized.includes("bankruptcy")) {
+    return {
+      icon: "💥",
+      label: "Bankruptcy"
+    };
+  }
+
+  return {
+    icon: "📜",
     label: type
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]/g, " ")
+      .trim()
   };
 }
 
-function formatEvent(event: any): string {
-  const type = eventType(event) ?? "Political Activity";
-  const { icon, label } = politicalLabel(type);
-  const when = eventDate(event);
+function diagnostic(events: any[], scope: string): void {
+  const sample = events.slice(0, 2).map((event) => {
+    const nestedKeys: Record<string, string[]> = {};
 
-  return `${icon} **${text(label)}**${when ? ` — ${when}` : ""}`;
+    for (const key of [
+      "data",
+      "payload",
+      "meta",
+      "content",
+      "attributes",
+      "details",
+      "eventData"
+    ]) {
+      if (
+        event?.[key] &&
+        typeof event[key] === "object" &&
+        !Array.isArray(event[key])
+      ) {
+        nestedKeys[key] = Object.keys(event[key]).slice(0, 20);
+      }
+    }
+
+    return {
+      keys:
+        event && typeof event === "object"
+          ? Object.keys(event).slice(0, 30)
+          : [],
+      nestedKeys,
+      detectedType: eventType(event)
+    };
+  });
+
+  console.warn(
+    `[WarEra ${scope} event diagnostics]`,
+    JSON.stringify(sample)
+  );
 }
 
 export const data = new SlashCommandBuilder()
@@ -189,10 +284,33 @@ export async function execute(i: any, ctx: any) {
     })
     .catch(() => null);
 
-  const events = asList(raw).slice(0, 10);
+  const events = asList(raw).slice(0, 8);
+
+  const unknownEvents = events.filter(
+    (event) => !eventType(event)
+  );
+
+  if (unknownEvents.length) {
+    diagnostic(
+      unknownEvents,
+      country
+        ? `${country.name} politics`
+        : "global politics"
+    );
+  }
 
   const lines =
-    events.map(formatEvent).join("\n") ||
+    events
+      .map((event: any) => {
+        const type =
+          eventType(event) ?? "Political Activity";
+
+        const info = politicalEventInfo(type);
+        const when = compactTime(eventDateValue(event));
+
+        return `${info.icon} **${text(info.label)}**${when ? ` — ${when}` : ""}`;
+      })
+      .join("\n") ||
     "No recent political events were returned by the provider.";
 
   const fields: any[] = [];
@@ -225,7 +343,7 @@ export async function execute(i: any, ctx: any) {
 
   fields.push({
     name: "📜 Recent Political Activity",
-    value: lines.slice(0, 1024),
+    value: lines,
     inline: false
   });
 
@@ -240,9 +358,11 @@ export async function execute(i: any, ctx: any) {
         .setColor(0x9b59b6)
         .addFields(fields)
         .setFooter({
-          text: country
-            ? `Country intelligence: ${country.name}`
-            : "Live global political activity"
+          text: unknownEvents.length
+            ? "Some event schema diagnostics were recorded"
+            : country
+              ? `Country intelligence: ${country.name}`
+              : "Live global political activity"
         })
     ]
   });
